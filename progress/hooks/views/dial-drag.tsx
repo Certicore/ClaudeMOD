@@ -1,19 +1,14 @@
-import type { ClientModule } from 'claude-code'
+// The limit dial's drag region: a Client surface module. It runs in the
+// surface's own sandboxed frame, so it imports nothing at all (not even
+// types): everything it needs comes through its two arguments.
 
-/** What the dial's drag region is handed: the range and grid it snaps to, and the value shown now. */
-export type DialDragProps = {
+/** What the region is handed: the range and grid it snaps to, the value shown now, the track's margins in cells. */
+type DialDragProps = {
   min: number
   max: number
   step: number
   value: number
-  /** Cells of the region's left and right margins where the track does not reach. */
   inset: number
-}
-
-/** What a drag tells the hooks module: the limit under the pointer, and whether the drag ended. */
-export type DialDragPost = {
-  limit: number
-  isFinal: boolean
 }
 
 type DragState = {
@@ -22,15 +17,36 @@ type DragState = {
   isDragging: boolean
 }
 
+type DialPointer = {
+  type: 'down' | 'move' | 'up' | 'enter' | 'leave'
+  x: number
+  y: number
+  fine?: { x: number; y: number }
+  button?: 'left' | 'middle' | 'right'
+}
+
+type DialSurface = {
+  readonly elements: { Box: (props: { width?: number; height?: number }) => unknown }
+  readonly state: DragState | undefined
+  setState: (next: DragState) => void
+  readonly columns: number
+  readonly rows: number
+  onPointer: (fn: (event: DialPointer) => void) => () => void
+  post: (data: unknown) => void
+}
+
 /**
- * The limit dial's drag region: an invisible layer laid over the dial's
- * SVG. A press anywhere on it jumps the knob there, a drag carries it, the
- * release settles it; each step crossed posts the snapped limit to the
- * hooks module, which redraws the dial under the pointer.
+ * An invisible layer laid over the dial's SVG. A press anywhere on it jumps
+ * the knob there, a drag carries it, the release settles it; each step
+ * crossed posts the snapped limit (`{ limit, isFinal }`) to the hooks
+ * module, which redraws the dial under the pointer. Its first draw posts
+ * `{ isReady: true }`, so the hooks module can drop the arrows it shows
+ * until the region is known to work.
  */
-const DialDrag: ClientModule<DialDragProps, DragState> = (props, surface) => {
+export default function DialDrag(props: DialDragProps, surface: DialSurface): unknown {
   if (surface.state === undefined) {
     surface.setState({ posted: null, isDragging: false })
+    surface.post({ isReady: true })
     surface.onPointer(event => {
       const state = surface.state ?? { posted: null, isDragging: false }
       const isPress = event.type === 'down' && event.button === 'left'
@@ -62,9 +78,5 @@ const DialDrag: ClientModule<DialDragProps, DragState> = (props, surface) => {
     })
   }
 
-  const { Box } = surface.elements
-
-  return <Box width={Math.max(1, surface.columns)} height={Math.max(1, surface.rows)} />
+  return surface.elements.Box({ width: Math.max(1, surface.columns), height: Math.max(1, surface.rows) })
 }
-
-export default DialDrag

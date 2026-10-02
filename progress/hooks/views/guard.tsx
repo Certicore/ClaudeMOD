@@ -19,6 +19,8 @@ export type GuardView = {
   /** The limit the picker shows, and the one its knob slides from after a nudge. */
   draft: number
   draftFrom: number | null
+  /** The dial's drag region runs here: the desktop picker drops its arrows. */
+  isDragReady: boolean
   pause: Pause | null
   /** Opens a window's picker, or closes it when it is the open one. */
   onEdit: (kind: string) => void
@@ -205,7 +207,8 @@ function dragLayerOf(ui: { Box: Box; Client: ElementConstructor<ClientProps> }, 
 /**
  * A window's limit picker on the desktop, one row: the window, the dial
  * (drag its knob, or press anywhere on its track; the `pause at 25%` bubble
- * rides along), `Set`, `Remove` once a limit is set, and a close mark.
+ * rides along), `Set`, `Remove` once a limit is set, and a close mark. The
+ * arrows stay beside the dial until its drag region reports that it runs.
  */
 export function desktopLimitPicker(
   ui: { Box: Box; Text: Text; Button: Button; Svg: ElementConstructor<SvgProps>; Client: ElementConstructor<ClientProps> },
@@ -220,6 +223,11 @@ export function desktopLimitPicker(
       <Text bold color={hexOf(AMBER)}>
         {`⚑ ${quota.label}`}
       </Text>
+      {guard.isDragReady ? null : (
+        <Button key={`nudge:${quota.kind}:down`} plain onPress={() => guard.onNudge(-1)}>
+          ◀
+        </Button>
+      )}
       <Box key={`dial:${quota.kind}`} position="relative" flexShrink={0}>
         <Svg
           source={limitDialOf({
@@ -236,6 +244,11 @@ export function desktopLimitPicker(
         />
         {dragLayerOf(ui, guard, quota, 1)}
       </Box>
+      {guard.isDragReady ? null : (
+        <Button key={`nudge:${quota.kind}:up`} plain onPress={() => guard.onNudge(1)}>
+          ▶
+        </Button>
+      )}
       <Button key={`limit-set:${quota.kind}`} variant="primary" autoFocus onPress={guard.onConfirm}>
         Set
       </Button>

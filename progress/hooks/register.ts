@@ -186,6 +186,8 @@ let editing: string | null = null
 let draft = LIMIT_START
 let draftFrom: number | null = null
 let draftMovedAt = 0
+/** Whether the dial's drag region has said it runs on this surface: until then the picker keeps its arrows. */
+let isDragReady = false
 /** How long a nudge's slide plays: a redraw after it draws the knob at rest. */
 const NUDGE_MS = 450
 /** The pause at a limit, while one holds the work. */
@@ -293,7 +295,15 @@ export function register(on: On, options: PluginOptions): void {
 
   // The limit dial's drag region posts the limit under the pointer.
   on('ui.message', { module: /dial-drag/ }, ($, e) => {
-    const data = e.data as { limit?: unknown; isFinal?: unknown } | null
+    const data = e.data as { limit?: unknown; isFinal?: unknown; isReady?: unknown } | null
+
+    if (data?.isReady === true && !isDragReady) {
+      isDragReady = true
+      $.ui.invalidate('ui.render')
+
+      return {}
+    }
+
     const limit = typeof data?.limit === 'number' && Number.isFinite(data.limit) ? nudgedLimit(data.limit, 0) : null
 
     if (limit !== null && editing !== null && limit !== draft) {
@@ -651,6 +661,7 @@ function guardViewOf($: EngineInterface, now: number): GuardView {
     editing,
     draft,
     draftFrom: draftFrom !== null && now - draftMovedAt < NUDGE_MS ? draftFrom : null,
+    isDragReady,
     pause,
     onEdit: kind => {
       editing = editing === kind ? null : kind

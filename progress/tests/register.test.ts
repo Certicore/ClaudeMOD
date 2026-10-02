@@ -354,7 +354,7 @@ describe('register', () => {
 
     expect(await ui.find({ key: 'limit-set:five_hour' }), 'the picker is open').toBeDefined()
     expect(await picker(), 'it starts at 25%').toContain('pause at 25%')
-    expect(await ui.find({ key: 'nudge:five_hour:down' }), 'no arrows: the knob is dragged').toBeUndefined()
+    expect(await ui.find({ key: 'nudge:five_hour:down' }), 'no arrows once the drag region runs: the knob is dragged').toBeUndefined()
 
     await ui.resize({ columns: 40, rows: 3, in: 'dial-drag:five_hour' })
     await ui.pointer({ ...drag, type: 'down', x: 4, button: 'left' })
