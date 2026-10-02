@@ -1,0 +1,6 @@
+{
+  "description": "The progress band: session.start registers the report_progress tool and /progress and loads the plans from $.store; tool.describe keeps the tool out of ToolSearch; tool.call on mcp__progress__report_progress updates one plan, saves it, starts its fill animation and plays a chime through $.audio; ui.render on AbovePrompt draws the header and one row per plan (glyphs and meters as two Rasters on the terminal, an SVG bar per row on the desktop, a ✕ Button per row); a $.clock.every frame loop repaints the Rasters with $.ui.blit while a bar fills, a plan flashes or Claude works; turn.start re-reads the store, turn.complete stops the shimmer; command.run answers /progress (list, clear, remove); prompt.compose asks Claude to report its progress",
+  "modules": [
+    "./register.ts"
+  ]
+}

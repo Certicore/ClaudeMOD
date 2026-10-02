@@ -1,0 +1,34 @@
+{
+  "name": "progress",
+  "displayName": "Progress Band",
+  "version": "1.0.0",
+  "description": "An animated progress band above the prompt: one row per plan with its name, an LED-matrix bar whose pixels twinkle and brighten toward the head over a feathered glow, a lit chip riding the head that names the stage and the step under way (\"Tests 3/5\"), the percentage and a ✕ that dissolves the row. Claude reports its own progress through the report_progress tool it registers; a chime plays when a step completes and an arpeggio when a plan finishes. Below the plans, what is left of the 5-hour and 7-day plan windows, with a limit you drag into place that pauses the work when it is reached. Each project folder keeps its own band.",
+  "author": {
+    "name": "NyxStudio",
+    "url": "https://github.com/Certicore"
+  },
+  "homepage": "https://github.com/Certicore/ClaudeMOD/tree/main/progress",
+  "repository": "https://github.com/Certicore/ClaudeMOD",
+  "license": "MIT",
+  "keywords": [
+    "mods",
+    "progress",
+    "ui",
+    "usage-limits",
+    "animation"
+  ],
+  "userConfig": {
+    "sound": {
+      "type": "boolean",
+      "title": "Progress sounds",
+      "description": "Play a short chime when a step completes, and a two-note chime when a whole plan finishes.",
+      "default": true
+    },
+    "usage": {
+      "type": "boolean",
+      "title": "Plan limits",
+      "description": "Show what is left of the 5-hour and 7-day plan windows under the progress bars, with when each resets.",
+      "default": true
+    }
+  }
+}

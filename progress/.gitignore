@@ -1,0 +1,3 @@
+# Claude Code writes the mod's TypeScript types into .claude-plugin/types/
+# each time it loads the mod (that folder ignores itself with its own .gitignore).
+node_modules/

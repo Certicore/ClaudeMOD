@@ -1,0 +1,24 @@
+{
+  "name": "nyxstudio-mods",
+  "owner": {
+    "name": "NyxStudio",
+    "url": "https://github.com/Certicore"
+  },
+  "metadata": {
+    "description": "Claude Code mods by NyxStudio: premium, animated additions to the Claude Code interface."
+  },
+  "plugins": [
+    {
+      "name": "progress",
+      "source": "./progress",
+      "description": "An animated progress band above the prompt: one row per plan Claude reports, the 5h and 7d plan limits, and a limit that pauses the work.",
+      "category": "productivity",
+      "keywords": [
+        "mods",
+        "progress",
+        "ui",
+        "usage-limits"
+      ]
+    }
+  ]
+}
