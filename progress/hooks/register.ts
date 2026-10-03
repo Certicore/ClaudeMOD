@@ -172,8 +172,10 @@ let isUsageOn = true
 let quotas: Quota[] = []
 /** Whether this instance of the module has asked the engine for the windows yet. */
 let hasUsage = false
-/** The minute tick that keeps the windows' countdowns current. */
-let countdown: Timer | null = null
+/** The minute tick: re-reads the folder's plans other sessions report, and keeps the windows' countdowns current. */
+let minuteTick: Timer | null = null
+/** How often the band re-reads the store for what other sessions of the folder reported. */
+const REFRESH_MS = 60_000
 /** Whether a model turn runs: the active plan spins and shimmers meanwhile. */
 let isWorking = false
 /** The running main-loop turn, as `turn.start` named it: what a pause stops. */
@@ -225,7 +227,7 @@ export function register(on: On, options: PluginOptions): void {
     await loadPlans($)
     await loadGuard($)
     await refreshUsage($)
-    startCountdown($)
+    startMinuteTick($)
     await armResume($)
 
     try {
@@ -923,16 +925,64 @@ async function refreshUsage($: EngineInterface): Promise<void> {
 }
 
 /** Redraws once a minute while a window shows, so `resets in 2h 14m` stays true. */
-function startCountdown($: EngineInterface): void {
-  if (countdown !== null) {
+function startMinuteTick($: EngineInterface): void {
+  if (minuteTick !== null) {
     return
   }
 
-  countdown = $.clock.every(60_000, () => {
-    if (shownQuotas().length > 0) {
-      $.ui.invalidate('ui.render')
-    }
+  minuteTick = $.clock.every(REFRESH_MS, () => {
+    void refreshFromStore($)
   })
+}
+
+/**
+ * Re-reads this folder's plans: another conversation in the folder may have
+ * started, moved, finished or removed one. A plan that moved fills to its
+ * new share and one that finished flashes, as if reported here; no chime,
+ * which plays only where the work is done. Redraws when anything changed,
+ * and in any case while a window's countdown shows.
+ */
+async function refreshFromStore($: EngineInterface): Promise<void> {
+  const before = plans
+
+  await loadPlans($)
+
+  const now = await $.clock.now()
+  let hasChanged = before.size !== plans.size
+
+  for (const [id, plan] of plans) {
+    const previous = before.get(id)
+
+    if (previous === undefined) {
+      hasChanged = true
+      continue
+    }
+
+    if (previous.updatedAt === plan.updatedAt && previous.step === plan.step && previous.total === plan.total) {
+      continue
+    }
+
+    hasChanged = true
+
+    const from = previous.step / previous.total
+    const to = plan.step / plan.total
+
+    if (from !== to && !removing.has(id)) {
+      fills.set(id, { from, to, startedAt: now })
+    }
+
+    if (isDone(plan) && !isDone(previous)) {
+      flashes.set(id, now + FILL_MS * 0.7)
+    }
+  }
+
+  if (hasChanged) {
+    startLoop($)
+  }
+
+  if (hasChanged || shownQuotas().length > 0) {
+    $.ui.invalidate('ui.render')
+  }
 }
 
 /** The session's project folder as the store names it, read afresh: a `/cd` moves it. */

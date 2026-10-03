@@ -632,6 +632,49 @@ describe('register', () => {
     expect(saved.get(HERE('refonte'))).toMatchObject({ step: 4, total: 5, createdAt: 1 })
   })
 
+  test('every minute the band picks up what another conversation of the folder reported', async ($, on) => {
+    const { saved, clock, played, blits } = world(on)
+    const theirs = (step: number, updatedAt: number) => ({
+      id: 'their-plan',
+      name: 'Their plan',
+      step,
+      total: 4,
+      note: 'Build',
+      createdAt: 1,
+      updatedAt,
+    })
+
+    await $.session.start(SESSION)
+    await report($, clock, { plan: 'Mine', step: 1, total: 2 })
+
+    const ui = await $.ui.mount({ ...band(), surface: 'terminal' })
+
+    expect(await ui.find({ type: 'Text', text: 'Their plan' }), 'not there yet').toBeUndefined()
+
+    saved.set(HERE('their-plan'), theirs(1, 10))
+    await clock.advance(60_000)
+
+    expect(await ui.find({ type: 'Text', text: 'Their plan' }), 'there within the minute').toBeDefined()
+
+    saved.set(HERE('their-plan'), theirs(4, 20))
+    played.length = 0
+    await clock.advance(60_000 + SETTLED_MS)
+
+    const painted = blits.filter(blit => blit.key === 'meters').at(-1)
+    const rows = painted === undefined ? [] : decodeText(painted.cells, painted.columns)
+
+    expect(rows.some(row => /Done 4\/4.*100%$/.test(row)), 'its progress fills to where it stands').toBe(true)
+    expect(played, 'no chime for work done elsewhere').toEqual([])
+
+    saved.delete(HERE('their-plan'))
+    await clock.advance(60_000)
+
+    expect(await ui.find({ type: 'Text', text: 'Their plan' }), 'and it leaves when removed there').toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Mine' }), 'this conversation keeps its own').toBeDefined()
+
+    await ui.unmount()
+  })
+
   test('each project folder has its own band', async ($, on) => {
     const { saved, clock } = world(on)
 

@@ -53,7 +53,7 @@ La carte propose deux suites :
 
 ## Un bandeau par dossier
 
-Le store d'un plugin est partagé par toutes les sessions de la machine. Le mod range donc chaque plan sous le dossier racine du projet, `$.session.root()`, avec une clé `plan:<dossier>:<plan>`. Chaque conversation ne voit que les plans de son dossier : deux projets différents ont chacun leur bandeau, et deux conversations dans le même dossier partagent le leur. `/progress clear` ne vide que le dossier courant.
+Le store d'un plugin est partagé par toutes les sessions de la machine. Le mod range donc chaque plan sous le dossier racine du projet, `$.session.root()`, avec une clé `plan:<dossier>:<plan>`. Chaque conversation ne voit que les plans de son dossier : deux projets différents ont chacun leur bandeau, et deux conversations dans le même dossier partagent le leur. Le bandeau relit le store chaque minute : un plan lancé, avancé, terminé ou retiré par une autre conversation du dossier apparaît dans la minute, avec la même animation de remplissage et le même flash. Les sons restent réservés à la conversation qui fait le travail. `/progress clear` ne vide que le dossier courant.
 
 Les plans de la première version n'avaient pas de dossier. Au chargement, ceux qui sont terminés sont supprimés. Un plan encore en cours n'est affiché nulle part : il est adopté par la première conversation qui le signale à nouveau.
 
