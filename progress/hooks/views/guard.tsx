@@ -194,7 +194,8 @@ const CAPSULE_SLOTS = 4
 /**
  * The invisible buttons over a quota capsule on the desktop, side by side
  * across it: a click on the bar opens its limit picker, and the pointer on
- * it lights the window's label.
+ * it lights the window's label. Their own ground stays clear under the
+ * pointer: the lit capsule beneath is the highlight.
  */
 export function capsuleButtonOf(ui: { Box: Box; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
   const { Box, Button } = ui
@@ -206,7 +207,7 @@ export function capsuleButtonOf(ui: { Box: Box; Button: Button }, guard: GuardVi
           <Button
             key={`quota-open:${quota.kind}:${index}`}
             plain
-            hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER) }}
+            hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER), backgroundColor: 'transparent', inverse: false }}
             onPress={() => guard.onEdit(quota.kind)}
           >
             {BLANK_LABEL}

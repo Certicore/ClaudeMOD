@@ -351,6 +351,7 @@ describe('register', () => {
     expect(await ui.find({ key: 'flag:five_hour' }), 'no flag without a limit').toBeUndefined()
     expect(await ui.find({ key: 'quota-open:five_hour:3' }), 'the capsule itself is the button, end to end').toBeDefined()
     expect([...String((await ui.find({ key: 'quota-open:five_hour:0' }))?.props.label)].length, 'no label long enough to be cut with an ellipsis').toBe(2)
+    expect(JSON.stringify(await ui.find({ key: 'quota-slot:five_hour:0' })), 'no ground of its own under the pointer').toContain('"backgroundColor":"transparent"')
 
     const lit = await ui.find({ key: 'quota-lit:five_hour' })
 
