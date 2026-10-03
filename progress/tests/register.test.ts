@@ -349,9 +349,10 @@ describe('register', () => {
     const picker = async () => JSON.stringify(await ui.find({ key: 'editor:five_hour' }))
 
     expect(await ui.find({ key: 'flag:five_hour' }), 'no flag without a limit').toBeUndefined()
-    expect(await ui.find({ key: 'quota-open:five_hour' }), 'the capsule itself is the button').toBeDefined()
+    expect(await ui.find({ key: 'quota-open:five_hour:3' }), 'the capsule itself is the button, end to end').toBeDefined()
+    expect([...String((await ui.find({ key: 'quota-open:five_hour:0' }))?.props.label)].length, 'no label long enough to be cut with an ellipsis').toBe(2)
 
-    await ui.press({ key: 'quota-open:five_hour' })
+    await ui.press({ key: 'quota-open:five_hour:1' })
 
     expect(await ui.find({ key: 'quota:seven_day' }), 'the dial takes the place of the quota row').toBeUndefined()
     expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'no limit yet').toContain('no limit')
@@ -387,7 +388,7 @@ describe('register', () => {
 
     expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'at rest afterwards').not.toContain('from=\\"8\\"')
 
-    await ui.press({ key: 'quota-open:five_hour' })
+    await ui.press({ key: 'quota-open:five_hour:2' })
 
     expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'it reopens on the limit set').toContain('60%')
 

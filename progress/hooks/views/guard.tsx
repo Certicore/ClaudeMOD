@@ -188,21 +188,31 @@ export function limitFlagOf(ui: { Box: Box; Text: Text }, guard: GuardView, quot
   )
 }
 
-/** Blanks as wide as a quota capsule: the label of the invisible button laid over it. */
-const CAPSULE_LABEL = '\u2800'.repeat(9)
+/** How many invisible buttons tile a quota capsule: each label short enough never to be cut with an ellipsis. */
+const CAPSULE_SLOTS = 4
 
 /**
- * The invisible button over a quota capsule on the desktop: a click on the
- * bar opens its limit picker, and the pointer on it lights the window's label.
+ * The invisible buttons over a quota capsule on the desktop, side by side
+ * across it: a click on the bar opens its limit picker, and the pointer on
+ * it lights the window's label.
  */
 export function capsuleButtonOf(ui: { Box: Box; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
   const { Box, Button } = ui
 
   return (
-    <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" justifyContent="center" alignItems="center">
-      <Button key={`quota-open:${quota.kind}`} plain hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER) }} onPress={() => guard.onEdit(quota.kind)}>
-        {CAPSULE_LABEL}
-      </Button>
+    <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" alignItems="center">
+      {Array.from({ length: CAPSULE_SLOTS }, (_, index) => (
+        <Box key={`quota-slot:${quota.kind}:${index}`} width={0} flexGrow={1} flexDirection="row" justifyContent="center">
+          <Button
+            key={`quota-open:${quota.kind}:${index}`}
+            plain
+            hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER) }}
+            onPress={() => guard.onEdit(quota.kind)}
+          >
+            {BLANK_LABEL}
+          </Button>
+        </Box>
+      ))}
     </Box>
   )
 }
