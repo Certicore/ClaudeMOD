@@ -383,6 +383,8 @@ export type QuotaBar = {
   isLanding?: boolean
   /** CSS pixels of air above and below the capsule. */
   padY?: number
+  /** Under the pointer: the whole capsule lights, a lavender rim around it and a sheen running along it. */
+  isHovered?: boolean
 }
 
 /**
@@ -432,6 +434,15 @@ export function quotaBarOf(quota: QuotaBar, width: number, height: number): stri
   const returning = quota.isGrowing === true
   const lit = quota.isLanding === true
   const padY = quota.padY ?? 0
+  const hovered = quota.isHovered === true
+  // Under the pointer: a lift of light over the whole capsule, a sheen gliding along it, and a lavender rim.
+  const glow = hovered
+    ? `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff" fill-opacity="0.12"/>` +
+      `<rect x="-30" y="0" width="30" height="${height}" fill="url(#h${key})"><animate attributeName="x" from="-30" to="${width}" dur="1.6s" repeatCount="indefinite"/></rect>`
+    : ''
+  const rim = hovered
+    ? `<rect x="0.6" y="0.6" width="${width - 1.2}" height="${height - 1.2}" rx="${(height - 1.2) / 2}" fill="none" stroke="${hexOf(LAVENDER)}" stroke-width="1.2"/>`
+    : ''
   const ease = 'calcMode="spline" keyTimes="0;1" keySplines="0.16 1 0.3 1"'
   const grow = returning
     ? `<animate attributeName="x" from="${width / 2 - 4}" to="0" dur="0.45s" fill="freeze" ${ease}/>` +
@@ -449,6 +460,9 @@ export function quotaBarOf(quota: QuotaBar, width: number, height: number): stri
     `<style>@keyframes tz{0%,100%{opacity:.4}50%{opacity:1}}.d{animation:tz 3.4s ease-in-out infinite}.e{animation:tz 2.6s ease-in-out 1.1s infinite}</style>` +
     `<defs>` +
     `<clipPath id="k${key}"><rect x="${returning ? width / 2 - 4 : 0}" y="0" width="${returning ? 8 : width}" height="${height}" rx="${height / 2}">${grow}</rect></clipPath>` +
+    (hovered
+      ? `<linearGradient id="h${key}" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.45"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+      : '') +
     (lit
       ? `<linearGradient id="g${key}" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.65" stop-color="#fff" stop-opacity="0.7"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
       : '') +
@@ -468,7 +482,9 @@ export function quotaBarOf(quota: QuotaBar, width: number, height: number): stri
     (fill > 0 ? `<rect x="0" y="0" width="${fill}" height="${height}" rx="${height / 2}" fill="url(#f${key})"/>` : '') +
     leds +
     gleam +
+    glow +
     `</g>` +
+    rim +
     limitMarkOf(quota.limit, width, height, lit, quota.limitFrom ?? null) +
     `</svg>`
   )

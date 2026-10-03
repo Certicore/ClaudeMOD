@@ -295,6 +295,21 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
                 width={QUOTA_BAR_PX}
                 height={10}
               />
+              <Box
+                key={`quota-lit:${quota.kind}`}
+                position="absolute"
+                top={0}
+                left={0}
+                display="none"
+                hover={{ scope: `quota:${quota.kind}`, display: 'flex' }}
+              >
+                <Svg
+                  source={quotaBarOf({ kind: quota.kind, remaining: quota.remaining, color, limit: model.guard.limits[quota.kind], isHovered: true }, QUOTA_BAR_PX, 10)}
+                  alt={`Set a ${quota.label} limit`}
+                  width={QUOTA_BAR_PX}
+                  height={10}
+                />
+              </Box>
               {capsuleButtonOf(ui, model.guard, quota)}
             </Box>
             <Text color={hexOf(color)} wrap="truncate-end">

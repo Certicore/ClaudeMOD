@@ -352,6 +352,11 @@ describe('register', () => {
     expect(await ui.find({ key: 'quota-open:five_hour:3' }), 'the capsule itself is the button, end to end').toBeDefined()
     expect([...String((await ui.find({ key: 'quota-open:five_hour:0' }))?.props.label)].length, 'no label long enough to be cut with an ellipsis').toBe(2)
 
+    const lit = await ui.find({ key: 'quota-lit:five_hour' })
+
+    expect(lit?.props.display, 'a lit capsule, hidden at rest').toBe('none')
+    expect(JSON.stringify(lit), 'a lavender rim around the whole capsule').toContain('stroke=\\"#a99cf6\\"')
+
     await ui.press({ key: 'quota-open:five_hour:1' })
 
     expect(await ui.find({ key: 'quota:seven_day' }), 'the dial takes the place of the quota row').toBeUndefined()
