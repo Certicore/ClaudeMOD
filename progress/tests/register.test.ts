@@ -349,16 +349,15 @@ describe('register', () => {
     const picker = async () => JSON.stringify(await ui.find({ key: 'editor:five_hour' }))
 
     expect(await ui.find({ key: 'flag:five_hour' }), 'no flag without a limit').toBeUndefined()
-    expect(await ui.find({ key: 'quota-open:five_hour:3' }), 'the capsule itself is the button, end to end').toBeDefined()
-    expect([...String((await ui.find({ key: 'quota-open:five_hour:0' }))?.props.label)].length, 'no label long enough to be cut with an ellipsis').toBe(2)
-    expect(JSON.stringify(await ui.find({ key: 'quota-slot:five_hour:0' })), 'no ground of its own under the pointer').toContain('"backgroundColor":"transparent"')
+    expect(await ui.find({ key: 'quota-open:five_hour' }), 'the capsule itself is the button').toBeDefined()
+    expect(JSON.stringify(await ui.find({ key: 'quota-hit:five_hour' })), 'clipped to the bar, so its hover ground covers the bar exactly').toContain('"overflow":"hidden"')
 
     const lit = await ui.find({ key: 'quota-lit:five_hour' })
 
     expect(lit?.props.display, 'a lit capsule, hidden at rest').toBe('none')
     expect(JSON.stringify(lit), 'a lavender rim around the whole capsule').toContain('stroke=\\"#a99cf6\\"')
 
-    await ui.press({ key: 'quota-open:five_hour:1' })
+    await ui.press({ key: 'quota-open:five_hour' })
 
     expect(await ui.find({ key: 'quota:seven_day' }), 'the dial takes the place of the quota row').toBeUndefined()
     expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'no limit yet').toContain('no limit')
@@ -394,7 +393,7 @@ describe('register', () => {
 
     expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'at rest afterwards').not.toContain('from=\\"8\\"')
 
-    await ui.press({ key: 'quota-open:five_hour:2' })
+    await ui.press({ key: 'quota-open:five_hour' })
 
     expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'it reopens on the limit set').toContain('60%')
 

@@ -437,7 +437,7 @@ export function quotaBarOf(quota: QuotaBar, width: number, height: number): stri
   const hovered = quota.isHovered === true
   // Under the pointer: a lift of light over the whole capsule, a sheen gliding along it, and a lavender rim.
   const glow = hovered
-    ? `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff" fill-opacity="0.12"/>` +
+    ? `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff" fill-opacity="0.06"/>` +
       `<rect x="-30" y="0" width="30" height="${height}" fill="url(#h${key})"><animate attributeName="x" from="-30" to="${width}" dur="1.6s" repeatCount="indefinite"/></rect>`
     : ''
   const rim = hovered

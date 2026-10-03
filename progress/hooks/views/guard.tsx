@@ -188,32 +188,40 @@ export function limitFlagOf(ui: { Box: Box; Text: Text }, guard: GuardView, quot
   )
 }
 
-/** How many invisible buttons tile a quota capsule: each label short enough never to be cut with an ellipsis. */
-const CAPSULE_SLOTS = 4
+/**
+ * The blank label of the button over a quota capsule, wider than the capsule,
+ * and the room it is given, so it is never cut with an ellipsis.
+ */
+const CAPSULE_LABEL = '\u2800'.repeat(14)
+const CAPSULE_ROOM = 24
 
 /**
- * The invisible buttons over a quota capsule on the desktop, side by side
- * across it: a click on the bar opens its limit picker, and the pointer on
- * it lights the window's label. Their own ground stays clear under the
- * pointer: the lit capsule beneath is the highlight.
+ * The invisible button over a quota capsule on the desktop: a click on the
+ * bar opens its limit picker, and the pointer on it lights the capsule and
+ * the window's label. The button is wider and taller than the bar and
+ * clipped to it, so the ground the desktop gives a button under the pointer
+ * covers the bar exactly, never a patch of it, nor past its edges.
  */
 export function capsuleButtonOf(ui: { Box: Box; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
   const { Box, Button } = ui
 
   return (
-    <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" alignItems="center">
-      {Array.from({ length: CAPSULE_SLOTS }, (_, index) => (
-        <Box key={`quota-slot:${quota.kind}:${index}`} width={0} flexGrow={1} flexDirection="row" justifyContent="center">
-          <Button
-            key={`quota-open:${quota.kind}:${index}`}
-            plain
-            hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER), backgroundColor: 'transparent', inverse: false }}
-            onPress={() => guard.onEdit(quota.kind)}
-          >
-            {BLANK_LABEL}
-          </Button>
-        </Box>
-      ))}
+    <Box
+      key={`quota-hit:${quota.kind}`}
+      position="absolute"
+      top={0}
+      left={0}
+      right={0}
+      bottom={0}
+      overflow="hidden"
+      flexDirection="row"
+      alignItems="center"
+    >
+      <Box width={CAPSULE_ROOM} flexShrink={0} flexDirection="row">
+        <Button key={`quota-open:${quota.kind}`} plain hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER) }} onPress={() => guard.onEdit(quota.kind)}>
+          {CAPSULE_LABEL}
+        </Button>
+      </Box>
     </Box>
   )
 }
