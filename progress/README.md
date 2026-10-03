@@ -67,11 +67,15 @@ Les plans de la première version n'avaient pas de dossier. Au chargement, ceux 
 
 Un vrai bouton « ▴ Collapse », au bout de la ligne des quotas, replie tous les plans en une seule ligne, façon stepper : un anneau par plan, reliés par un fil. Un plan terminé est un disque émeraude avec sa coche. Un plan en cours est un arc lavande qui fait le tour de l'anneau à hauteur de son avancement, avec un cœur qui respire, et une étincelle tourne autour de celui sur lequel Claude travaille. Suivent le nom du plan en cours, son étape (« 4/5 · 4 done »), le pourcentage global et le bouton « ▾ 5 tasks », qui rouvre la liste. Quand tout est fini, la ligne affiche « All done » en émeraude. Au-delà de 12 plans, les plus anciens plans terminés se résument en « +3 ». Au repli, les anneaux apparaissent en fondu l'un après l'autre. À la réouverture, chaque barre se dévoile derrière un bord lumineux. La ligne des quotas reste en dessous. Le choix est retenu par dossier, dans `view:<dossier>`. Dans le terminal, la ligne repliée s'écrit `✓─✓─◑ Tests 2/4 · 1 done 63%`, et la boucle d'animation ne repeint plus les lignes masquées.
 
+![La ligne repliée en anneaux](screenshots/desktop-folded.png)
+
 ## Les messages en attente
 
 Quand vous envoyez un message pendant que Claude travaille, il s'ajoute au bandeau comme une tâche en attente. Il est nommé d'après sa première ligne, en italique, avec un rond creux indigo. Sa barre ne se remplit pas : quelques LED indigo y respirent lentement, une lueur douce va et vient d'un bout à l'autre comme un scanner, et une pastille vitrée « ⧗ Waiting #1 » donne sa place dans la file. Le sablier se retourne de temps en temps. Dans le terminal, la pastille est suivie d'une piste pointillée où glisse la même lueur. Dans la ligne repliée, c'est un anneau en pointillés qui tourne lentement, et le résumé ajoute « · 1 waiting ».
 
 Quand Claude commence un plan pour ce message, il appelle `report_progress` avec `queued: true` : la ligne en attente la plus ancienne devient ce plan, à la même place, et sa barre se dévoile derrière un bord lumineux. À la fin du tour, les messages encore en attente de cette conversation disparaissent, puisque Claude les a tous reçus. Les commandes `/…`, les notifications de tâches et les messages d'autres sessions ne créent pas de ligne. Les lignes en attente sont rangées par dossier comme les plans. Les autres conversations du dossier les voient donc, mais seule la conversation d'origine les efface. Une ligne orpheline de plus de 6 heures, après un plantage, est supprimée au chargement.
+
+![Des messages en attente sous un plan en cours](screenshots/desktop-waiting.png)
 
 ## Le `✕` qui dissout
 
@@ -83,11 +87,13 @@ Le `✕` ne fait pas disparaître la ligne d'un coup. Sur Desktop, chaque LED se
 | --- | --- |
 | `session.start` | Enregistre l'outil `report_progress` (`$.tool.register`) et la commande `/progress` (`$.command.register`, `immediate`), puis charge les plans depuis `$.store`. |
 | `tool.describe` sur l'outil | Le garde listé dans le prompt plutôt que derrière ToolSearch, pour que Claude l'utilise sans le chercher. |
-| `tool.call` sur `mcp__progress__report_progress` | Lit l'appel (`plan`, `step`, `total`, `note`, `done`, `remove`), met le plan à jour, l'enregistre sous `plan:<id>`, lance l'animation de remplissage (et le flash si le plan se termine), redessine, puis joue `fx/step-done.wav` ou `fx/plan-done.wav` sans retenir la réponse de l'outil. Un `.catch` renvoie l'erreur au modèle plutôt que de laisser l'appel sans réponse. |
+| `tool.call` sur `mcp__progress__report_progress` | Lit l'appel (`plan`, `step`, `total`, `note`, `done`, `remove`, `queued`), met le plan à jour (ou transforme le plus ancien message en attente en ce plan, avec `queued`), l'enregistre sous `plan:<id>`, lance l'animation de remplissage (et le flash si le plan se termine), redessine, puis joue `fx/step-done.wav` ou `fx/plan-done.wav` sans retenir la réponse de l'outil. Un `.catch` renvoie l'erreur au modèle plutôt que de laisser l'appel sans réponse. |
 | `ui.render` sur `AbovePrompt` | Dessine l'en-tête puis une ligne par plan, au-dessus de ce que dessinent les mods en dessous (`await next(e)`). Laisse le bandeau tel quel sans plan ou pendant un sondage. |
 | `turn.start` | Relit le store, pour afficher les plans signalés par une autre session du même dossier, et lance le spinner. |
 | `session.measure` | Met à jour les fenêtres de 5 h et de 7 jours quand le moteur les mesure. |
-| `turn.complete` | Arrête le spinner et le reflet à la fin du tour principal. |
+| `turn.complete` | Arrête le spinner et le reflet à la fin du tour principal, et efface les messages en attente de cette conversation. |
+| `prompt.submit` | Ajoute une ligne en attente pour un message envoyé pendant un tour (`e.turnId` présent, venu de la personne) ; lève aussi la pause quand la personne écrit pendant une pause. |
+| `session.end` | Efface les messages en attente de la conversation qui se termine. |
 | `command.run` sur `progress` | `/progress` liste les plans, `/progress clear` les supprime tous, `/progress remove <plan>` en supprime un. |
 | `prompt.compose` | Ajoute une courte section au prompt système, quand l'outil est offert, pour demander à Claude de signaler son avancement. |
 
@@ -103,6 +109,7 @@ Appels sur `$` : `audio.play`, `clock.every`, `clock.now`, `command.register`, `
 | `note` | string | L'étape qui commence, en un à trois mots (« Tests », « Deploy ») : le texte de la pastille. |
 | `done` | boolean | `true` quand le plan est fini : `step` devient `total`. |
 | `remove` | boolean | `true` pour retirer la ligne. |
+| `queued` | boolean | `true` quand ce nouveau plan prend en charge un message envoyé pendant le travail : la plus ancienne ligne en attente devient ce plan. |
 
 La pastille affiche l'étape en cours, `step + 1`, et le pourcentage les étapes terminées : « Tests 3/5 » à 40 %. Le pourcentage plafonne à 99 % tant que `step < total`.
 
@@ -132,17 +139,17 @@ progress/
 │   ├── raster.ts                # l'encodage base64 des cellules d'un Raster (et son décodage pour les tests)
 │   └── views/
 │       ├── band.tsx             # le bandeau en JSX : terminal, Desktop, texte
-│       ├── svg-bar.ts           # la barre SVG du Desktop : matrice de LED, halo, pastille
-│       ├── svg-alert.ts         # l'emblème et la vague de l'alerte, le sélecteur de limite
+│       ├── svg-bar.ts           # les SVG du Desktop : barres, ligne en attente, anneaux, capsules de quota
+│       ├── svg-alert.ts         # l'emblème et la vague de l'alerte, la coche ✓ du sélecteur
 │       ├── guard.tsx            # la carte d'alerte, le sélecteur, les boutons de limite
-│       └── dial-drag.tsx        # la couche Client qui fait glisser le curseur de limite
+│       └── dial-drag.tsx        # la couche Client du sélecteur, dans le terminal
 ├── fx/
 │   ├── step-done.wav
 │   ├── plan-done.wav
 │   ├── alert.wav
 │   └── dissolve.wav
 ├── screenshots/                 # le GIF et les captures de ce README
-├── tests/register.test.ts       # 26 tests pour `claude plugin test`
+├── tests/                       # 32 tests pour `claude plugin test`
 └── tsconfig.json
 ```
 
@@ -170,7 +177,7 @@ Puis demander un travail en plusieurs étapes, par exemple « fais ce refactor e
 ```sh
 claude plugin validate --strict ./progress   # analyse statique : hooks et appels
 npx -p typescript tsc -p ./progress          # typage de hooks/ et tests/
-claude plugin test ./progress                # les 26 tests
+claude plugin test ./progress                # les 32 tests
 ```
 
 Les tests stubbent le monde sous le mod (`store.*`, `audio.play`, `ui.blit`, `tool.register`, `ui.render`, l'horloge avec `mock.clock`), montent le bandeau avec `$.ui.mount` sur les surfaces terminal et Desktop, décodent les cellules des `Raster` pour lire la pastille et le pourcentage, lisent le SVG du Desktop, avancent l'horloge pour suivre le remplissage, et pressent `✕`. Un test couvre le rechargement à chaud : un module rechargé qui reçoit un appel avant son `session.start` relit d'abord le store.

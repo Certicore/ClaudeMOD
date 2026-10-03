@@ -4,7 +4,7 @@ Claude Code mods by NyxStudio: plugins whose hooks module changes how Claude Cod
 
 | Mod | What it does |
 | --- | --- |
-| [`progress`](progress/) | An animated progress band above the prompt: one row per plan Claude reports (an LED-matrix bar, a chip naming the stage, the percentage, a ✕ that dissolves the row), the 5h and 7d plan limits under it, and a limit you drag into place that pauses the work when it is reached. |
+| [`progress`](progress/) | An animated progress band above the prompt: one row per plan Claude reports (an LED-matrix bar, a chip naming the stage, the percentage, a ✕ that dissolves the row), messages you send mid-turn shown as waiting rows, a fold into one line of rings, the 5h and 7d plan limits under it, and a limit you click into place that pauses the work when it is reached. |
 
 ![progress](progress/screenshots/desktop-band.gif)
 
