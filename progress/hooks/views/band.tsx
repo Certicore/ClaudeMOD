@@ -28,7 +28,8 @@ import { quotaColorOf, remainingShortOf, remainingTextOf, resetShortOf, resetTex
 import {
   desktopAlertCard,
   desktopLimitPicker,
-  limitFlagButton,
+  capsuleButtonOf,
+  limitFlagOf,
   limitLabelButton,
   terminalAlertCard,
   terminalLimitPicker,
@@ -234,7 +235,7 @@ function terminalQuotaRow(ui: TerminalKit, model: BandModel): RenderElement {
             />
             <Text color={hexOf(color)}>{remainingShortOf(quota.remaining)}</Text>
             {reset === '' ? null : <Text dimColor>{reset}</Text>}
-            {limitFlagButton(ui.Button, model.guard, quota)}
+            {limitFlagOf(ui, model.guard, quota)}
           </Box>
         )
       })}
@@ -269,23 +270,26 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
         return (
           <Box key={`quota:${quota.kind}`} flexDirection="row" gap={1} alignItems="center" flexShrink={0} marginLeft={index === 0 ? 0 : 3}>
             {limitLabelButton(ui.Button, model.guard, quota)}
-            <Svg
-              source={quotaBarOf(
-                {
-                  kind: quota.kind,
-                  remaining: quota.remaining,
-                  color,
-                  limit: model.guard.limits[quota.kind],
-                  isReturning: model.guard.justSet !== null,
-                  isConfirmed: model.guard.justSet === quota.kind,
-                },
-                QUOTA_BAR_PX,
-                10,
-              )}
-              alt={`${quota.label}: ${remainingTextOf(quota.remaining)}`}
-              width={QUOTA_BAR_PX}
-              height={10}
-            />
+            <Box key={`quota-bar:${quota.kind}`} position="relative" flexShrink={0}>
+              <Svg
+                source={quotaBarOf(
+                  {
+                    kind: quota.kind,
+                    remaining: quota.remaining,
+                    color,
+                    limit: model.guard.limits[quota.kind],
+                    isGrowing: model.guard.justSet !== null,
+                    isLanding: model.guard.justSet === quota.kind,
+                  },
+                  QUOTA_BAR_PX,
+                  10,
+                )}
+                alt={`${quota.label}: ${remainingTextOf(quota.remaining)}`}
+                width={QUOTA_BAR_PX}
+                height={10}
+              />
+              {capsuleButtonOf(ui, model.guard, quota)}
+            </Box>
             <Text color={hexOf(color)} wrap="truncate-end">
               {remainingShortOf(quota.remaining)}
             </Text>
@@ -294,7 +298,7 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
                 {reset}
               </Text>
             )}
-            {limitFlagButton(ui.Button, model.guard, quota)}
+            {limitFlagOf(ui, model.guard, quota)}
           </Box>
         )
       })}

@@ -278,20 +278,34 @@ function escapeXml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/** What a quota capsule draws, and how it comes in. */
+export type QuotaBar = {
+  kind: string
+  /** What is left of the window, 0 to 100, and its color. */
+  remaining: number
+  color: Rgb
+  /** The limit's notch, in percent left; none when undefined. */
+  limit?: number
+  /** Where the notch slides from, when it just moved. */
+  limitFrom?: number | null
+  /** The capsule grows out of its middle (the quota row coming back, a limit picker opening). */
+  isGrowing?: boolean
+  /** A gleam runs along it and its notch drops in with a ring of amber light. */
+  isLanding?: boolean
+  /** CSS pixels of air above and below the capsule. */
+  padY?: number
+}
+
 /**
  * A quota's bar on the desktop: a slim capsule whose LEDs fill what is left
  * of the window, brightest at its end, in the quota's color, calmly
- * twinkling; the empty part a groove.
+ * twinkling; the empty part a groove; the limit a white notch in an amber
+ * glow. The limit picker draws the same capsule, wider.
  *
- * As the quota row comes back after a limit picker, each capsule grows out
- * of its middle; the one whose limit was just validated then catches a
- * gleam, and its notch drops in with a ring of amber light.
+ * Growing, it opens out of its middle; landing, a gleam runs along it and
+ * its notch drops in with a ring of amber light. A moved notch slides.
  */
-export function quotaBarOf(
-  quota: { kind: string; remaining: number; color: Rgb; limit?: number; isReturning?: boolean; isConfirmed?: boolean },
-  width: number,
-  height: number,
-): string {
+export function quotaBarOf(quota: QuotaBar, width: number, height: number): string {
   const key = `q${quota.kind.replace(/[^a-z0-9]/gi, '')}`
   const seed = seedOf(quota.kind)
   const fill = Math.round((Math.max(0, Math.min(100, quota.remaining)) / 100) * width)
@@ -326,8 +340,9 @@ export function quotaBarOf(
     leds += `<path d="${d}" fill="url(#p${key})" fill-opacity="${[0.45, 0.72, 1][Number(level)] ?? 1}"${phase === '' ? '' : ` class="${phase}"`}/>`
   }
 
-  const returning = quota.isReturning === true
-  const lit = returning && quota.isConfirmed === true
+  const returning = quota.isGrowing === true
+  const lit = quota.isLanding === true
+  const padY = quota.padY ?? 0
   const ease = 'calcMode="spline" keyTimes="0;1" keySplines="0.16 1 0.3 1"'
   const grow = returning
     ? `<animate attributeName="x" from="${width / 2 - 4}" to="0" dur="0.45s" fill="freeze" ${ease}/>` +
@@ -341,7 +356,7 @@ export function quotaBarOf(
     : ''
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="visible">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height + padY * 2}" viewBox="0 ${-padY} ${width} ${height + padY * 2}" overflow="visible">` +
     `<style>@keyframes tz{0%,100%{opacity:.4}50%{opacity:1}}.d{animation:tz 3.4s ease-in-out infinite}.e{animation:tz 2.6s ease-in-out 1.1s infinite}</style>` +
     `<defs>` +
     `<clipPath id="k${key}"><rect x="${returning ? width / 2 - 4 : 0}" y="0" width="${returning ? 8 : width}" height="${height}" rx="${height / 2}">${grow}</rect></clipPath>` +
@@ -365,21 +380,30 @@ export function quotaBarOf(
     leds +
     gleam +
     `</g>` +
-    limitMarkOf(quota.limit, width, height, lit) +
+    limitMarkOf(quota.limit, width, height, lit, quota.limitFrom ?? null) +
     `</svg>`
   )
 }
 
 /** Where a quota's limit sits on its capsule: a bright notch with a soft amber glow. */
-function limitMarkOf(limit: number | undefined, width: number, height: number, isLanding = false): string {
+function limitMarkOf(limit: number | undefined, width: number, height: number, isLanding = false, from: number | null = null): string {
   if (limit === undefined) {
     return ''
   }
 
-  const x = Math.max(1.5, Math.min(width - 1.5, (limit / 100) * width)).toFixed(1)
+  const xOf = (percent: number) => Math.max(1.5, Math.min(width - 1.5, (percent / 100) * width))
+  const x = xOf(limit).toFixed(1)
+  const glow = Math.max(4, height * 0.42)
+  const core = Math.max(1.4, height * 0.16)
+  const shift = from === null ? 0 : xOf(from) - xOf(limit)
+  const lines =
+    `<line x1="${x}" x2="${x}" y1="0" y2="${height}" stroke="${hexOf(AMBER)}" stroke-opacity="0.45" stroke-width="${glow.toFixed(1)}" stroke-linecap="round"/>` +
+    `<line x1="${x}" x2="${x}" y1="0.5" y2="${height - 0.5}" stroke="#fff" stroke-width="${core.toFixed(1)}" stroke-linecap="round"/>`
+  // A moved notch slides over from where it stood.
   const mark =
-    `<line x1="${x}" x2="${x}" y1="0" y2="${height}" stroke="${hexOf(AMBER)}" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round"/>` +
-    `<line x1="${x}" x2="${x}" y1="0.5" y2="${height - 0.5}" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>`
+    Math.abs(shift) > 0.5
+      ? `<g><animateTransform attributeName="transform" type="translate" from="${shift.toFixed(1)} 0" to="0 0" dur="0.42s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.22 1 0.36 1"/>${lines}</g>`
+      : lines
 
   if (!isLanding) {
     return mark
@@ -393,8 +417,8 @@ function limitMarkOf(limit: number | undefined, width: number, height: number, i
     mark +
     `</g>` +
     `<ellipse cx="${x}" cy="${height / 2}" rx="1" ry="1" fill="none" stroke="${hexOf(AMBER)}" stroke-width="1.4" opacity="0">` +
-    `<animate attributeName="rx" values="1;16" begin="0.72s" dur="0.55s" fill="freeze"/>` +
-    `<animate attributeName="ry" values="1;9" begin="0.72s" dur="0.55s" fill="freeze"/>` +
+    `<animate attributeName="rx" values="1;${Math.round(height * 1.6)}" begin="0.72s" dur="0.55s" fill="freeze"/>` +
+    `<animate attributeName="ry" values="1;${Math.round(height * 0.9)}" begin="0.72s" dur="0.55s" fill="freeze"/>` +
     `<animate attributeName="opacity" values="0;0.95;0" keyTimes="0;0.15;1" begin="0.72s" dur="0.55s" fill="freeze"/>` +
     `</ellipse>`
   )

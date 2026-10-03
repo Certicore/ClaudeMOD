@@ -5,7 +5,8 @@ import { alertWaveCells, limitDialCells } from '../meter'
 import { AMBER, AMBER_DIM, hexOf, INDIGO, LAVENDER, MUTED } from '../palette'
 import { encodeRows } from '../raster'
 import { quotaColorOf, remainingTextOf, resetTextOf, type Quota } from '../usage'
-import { alertRingOf, alertWaveOf, confirmMarkOf, DIAL_HEIGHT, limitDialOf } from './svg-alert'
+import { alertRingOf, alertWaveOf, confirmMarkOf } from './svg-alert'
+import { quotaBarOf } from './svg-bar'
 
 type Box = ElementConstructor<BoxProps>
 type Text = ElementConstructor<TextProps>
@@ -175,20 +176,34 @@ export function limitLabelButton(Button: Button, guard: GuardView, quota: Quota)
   )
 }
 
-/** The flag after a window's figures: its limit (`⚑ 20%`) or an invitation to set one. */
-export function limitFlagButton(Button: Button, guard: GuardView, quota: Quota): RenderElement {
+/** The flag after a window's figures, `⚑ 20%`, while a limit is set; nothing otherwise. */
+export function limitFlagOf(ui: { Box: Box; Text: Text }, guard: GuardView, quota: Quota): RenderElement | null {
+  const { Box, Text } = ui
   const limit = guard.limits[quota.kind]
 
+  return limit === undefined ? null : (
+    <Box key={`flag:${quota.kind}`} flexShrink={0}>
+      <Text color={hexOf(AMBER)}>{`⚑ ${limit}%`}</Text>
+    </Box>
+  )
+}
+
+/** Blanks as wide as a quota capsule: the label of the invisible button laid over it. */
+const CAPSULE_LABEL = '\u2800'.repeat(9)
+
+/**
+ * The invisible button over a quota capsule on the desktop: a click on the
+ * bar opens its limit picker, and the pointer on it lights the window's label.
+ */
+export function capsuleButtonOf(ui: { Box: Box; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
+  const { Box, Button } = ui
+
   return (
-    <Button
-      key={`flag:${quota.kind}`}
-      plain
-      dimColor={limit === undefined}
-      hover={{ scope: `quota:${quota.kind}`, color: hexOf(AMBER) }}
-      onPress={() => guard.onEdit(quota.kind)}
-    >
-      {limit === undefined ? '⚑' : `⚑ ${limit}%`}
-    </Button>
+    <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" justifyContent="center" alignItems="center">
+      <Button key={`quota-open:${quota.kind}`} plain hover={{ scope: `quota:${quota.kind}`, color: hexOf(LAVENDER) }} onPress={() => guard.onEdit(quota.kind)}>
+        {CAPSULE_LABEL}
+      </Button>
+    </Box>
   )
 }
 
@@ -297,13 +312,20 @@ function dragLayerOf(ui: { Box: Box; Client: ElementConstructor<ClientProps> }, 
 
 /** The ✓ disc's size, in CSS pixels. */
 const CONFIRM_PX = 24
+/** The picker's capsule: the quota capsule drawn wide, and the air above and below it for the click layer. */
+const DIAL_TRACK_PX = 12
+const DIAL_PAD_PX = 3
+/** Cells on each side of the picker's capsule, the same both sides, so the capsule stands in the middle. */
+const DIAL_SIDE = 26
 
 /**
  * A window's limit picker on the desktop, in the quota row's place: the
- * window, the dial and the click layer over it (hover to read a percent,
- * click to set the limit there, click again to move it), `Remove` while a
- * limit shows, and the ✓ that keeps it and brings the two windows back.
- * Opening, the dial grows out of its middle and the ✓ pops in after it.
+ * window's capsule drawn wide and centred, the window on its left and, on
+ * its right, the limit it shows, the percent under the pointer, `Remove`
+ * while a limit shows, and the ✓ that keeps it and brings the two windows
+ * back. A click on the capsule puts the notch there; another moves it.
+ * Opening, the capsule grows out of its middle, a gleam runs along it and
+ * the notch drops in; the ✓ pops in after.
  */
 export function desktopLimitPicker(
   ui: { Box: Box; Text: Text; Button: Button; Svg: ElementConstructor<SvgProps> },
@@ -312,41 +334,56 @@ export function desktopLimitPicker(
   marginTop: number,
 ): RenderElement {
   const { Box, Text, Button, Svg } = ui
+  const value = guard.draft === null ? 'no limit' : `${guard.draft}%`
 
   return (
     <Box key={`editor:${quota.kind}`} flexDirection="row" gap={1} alignItems="center" marginTop={marginTop}>
-      <Text bold color={hexOf(AMBER)}>
-        {`⚑ ${quota.label}`}
-      </Text>
+      <Box width={DIAL_SIDE} flexShrink={0} flexDirection="row" justifyContent="flex-end">
+        <Text bold color={hexOf(AMBER)}>
+          {`⚑ ${quota.label}`}
+        </Text>
+      </Box>
       <Box key={`dial:${quota.kind}`} position="relative" flexShrink={0}>
         <Svg
-          source={limitDialOf({
-            kind: quota.kind,
-            remaining: quota.remaining,
-            color: quotaColorOf(quota.remaining),
-            limit: guard.draft,
-            from: guard.draftFrom,
-            width: DIAL_PX,
-            isOpening: guard.isOpening,
-          })}
-          alt={guard.draft === null ? 'click the bar to set a limit' : `pause at ${guard.draft}% left`}
+          source={quotaBarOf(
+            {
+              kind: quota.kind,
+              remaining: quota.remaining,
+              color: quotaColorOf(quota.remaining),
+              ...(guard.draft === null ? {} : { limit: guard.draft }),
+              limitFrom: guard.draftFrom,
+              isGrowing: guard.isOpening,
+              isLanding: guard.isOpening,
+              padY: DIAL_PAD_PX,
+            },
+            DIAL_PX,
+            DIAL_TRACK_PX,
+          )}
+          alt={`${quota.label}: ${remainingTextOf(quota.remaining)}, ${guard.draft === null ? 'no limit' : `pause at ${guard.draft}% left`}`}
           width={DIAL_PX}
-          height={DIAL_HEIGHT}
+          height={DIAL_TRACK_PX + DIAL_PAD_PX * 2}
         />
         {clickLayerOf(ui, guard, quota)}
       </Box>
-      {hoverReadoutOf(ui, quota)}
-      {guard.draft === null ? null : (
-        <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={guard.onClear}>
-          Remove
-        </Button>
-      )}
-      <Box key={`confirm:${quota.kind}`} position="relative" flexShrink={0}>
-        <Svg source={confirmMarkOf(CONFIRM_PX, guard.isOpening)} alt="Validate the limit" width={CONFIRM_PX} height={CONFIRM_PX} />
-        <Box position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="center" alignItems="center">
-          <Button key={`limit-confirm:${quota.kind}`} plain autoFocus onPress={guard.onConfirm}>
-            {BLANK_LABEL}
+      <Box width={DIAL_SIDE} flexShrink={0} flexDirection="row" gap={1} alignItems="center">
+        <Box key={`dial-value:${quota.kind}`} flexShrink={0}>
+          <Text bold color={hexOf(AMBER)}>
+            {value}
+          </Text>
+        </Box>
+        {hoverReadoutOf(ui, quota)}
+        {guard.draft === null ? null : (
+          <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={guard.onClear}>
+            Remove
           </Button>
+        )}
+        <Box key={`confirm:${quota.kind}`} position="relative" flexShrink={0}>
+          <Svg source={confirmMarkOf(CONFIRM_PX, guard.isOpening)} alt="Validate the limit" width={CONFIRM_PX} height={CONFIRM_PX} />
+          <Box position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="center" alignItems="center">
+            <Button key={`limit-confirm:${quota.kind}`} plain autoFocus onPress={guard.onConfirm}>
+              {BLANK_LABEL}
+            </Button>
+          </Box>
         </Box>
       </Box>
     </Box>

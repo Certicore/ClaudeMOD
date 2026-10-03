@@ -77,11 +77,11 @@ describe('guard-view', () => {
     expect(picked, 'a click sets the limit there').toEqual([70, 5])
   })
 
-  test('with no limit yet, the dial asks for a click', () => {
+  test('with no limit yet, the capsule has no notch and the side says so', () => {
     const elements = walk(desktopLimitPicker(table(), guard(null, []), QUOTA, 1))
     const svg = elements.find(each => each.type === 'Svg')
 
-    expect(String(svg?.props.source)).toContain('click the bar to set a limit')
-    expect(String(svg?.props.source)).not.toContain('pause at')
+    expect(String(svg?.props.source), 'no notch').not.toContain('stroke="#f5a524"')
+    expect(JSON.stringify(elements.find(each => each.props.key === 'dial-value:five_hour')), 'the side says so').toContain('no limit')
   })
 })

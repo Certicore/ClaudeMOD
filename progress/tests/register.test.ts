@@ -339,7 +339,7 @@ describe('register', () => {
     await ui.unmount()
   })
 
-  test('a quota label puts its dial in place of the row; clicks move the bar, ✓ keeps it and brings both windows back', async ($, on) => {
+  test('a click on a quota capsule puts it, wide, in place of the row; clicks move the notch, ✓ keeps it and brings both windows back', async ($, on) => {
     const { saved, clock } = world(on, LIMITS)
 
     await $.session.start(SESSION)
@@ -347,13 +347,15 @@ describe('register', () => {
     const ui = await $.ui.mount({ ...band(), surface: 'desktop' })
     const picker = async () => JSON.stringify(await ui.find({ key: 'editor:five_hour' }))
 
-    expect((await ui.find({ key: 'flag:five_hour' }))?.text, 'no limit yet').toBe('⚑')
+    expect(await ui.find({ key: 'flag:five_hour' }), 'no flag without a limit').toBeUndefined()
+    expect(await ui.find({ key: 'quota-open:five_hour' }), 'the capsule itself is the button').toBeDefined()
 
-    await ui.press({ key: 'limit:five_hour' })
+    await ui.press({ key: 'quota-open:five_hour' })
 
     expect(await ui.find({ key: 'quota:seven_day' }), 'the dial takes the place of the quota row').toBeUndefined()
-    expect(await picker(), 'with no limit, the dial invites a click').toContain('click the bar to set a limit')
-    expect(await picker(), 'it opens out of its middle').toContain('clip-path=\\"url(#op)\\"')
+    expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'no limit yet').toContain('no limit')
+    expect(await picker(), 'the same capsule, grown out of its middle').toContain('attributeName=\\"width\\" from=\\"8\\"')
+    expect(await picker(), 'no bubble over it').not.toContain('pause at 40%')
     expect(await ui.find({ key: 'dial-step:five_hour:40' }), 'the track is clickable').toBeDefined()
     expect(JSON.stringify(await ui.find({ key: 'dial-readout:five_hour' })), 'the readout beside the dial holds each percent').toContain('→ 40%')
     expect(JSON.stringify(await ui.find({ key: 'confirm:five_hour' })), 'the ✓ draws its check').toContain('stroke-dashoffset')
@@ -361,12 +363,13 @@ describe('register', () => {
     await ui.press({ key: 'dial-step:five_hour:40' })
 
     expect(saved.get('limits'), 'nothing kept before the ✓').toBeUndefined()
-    expect(await picker(), 'the bar stands at 40%').toContain('pause at 40%')
+    expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'the notch stands at 40%').toContain('40%')
+    expect(await picker(), 'a white notch in an amber glow').toContain('x1=\\"120.0\\"')
 
     await ui.press({ key: 'dial-step:five_hour:60' })
 
-    expect(await picker(), 'another click moves the bar').toContain('pause at 60%')
-    expect(await picker(), 'and it slides there').toContain('animateTransform')
+    expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'another click moves it').toContain('60%')
+    expect(await picker(), 'and it slides there').toContain('from=\\"-60.0 0\\"')
 
     await ui.press({ key: 'limit-confirm:five_hour' })
 
@@ -383,13 +386,13 @@ describe('register', () => {
 
     expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'at rest afterwards').not.toContain('from=\\"8\\"')
 
-    await ui.press({ key: 'flag:five_hour' })
+    await ui.press({ key: 'quota-open:five_hour' })
 
-    expect(await picker(), 'it reopens on the limit set').toContain('pause at 60%')
+    expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'it reopens on the limit set').toContain('60%')
 
     await ui.press({ key: 'limit-off:five_hour' })
 
-    expect(await picker(), 'Remove clears the dial').toContain('click the bar to set a limit')
+    expect(JSON.stringify(await ui.find({ key: 'dial-value:five_hour' })), 'Remove clears the notch').toContain('no limit')
     expect(saved.get('limits'), 'until the ✓').toEqual({ five_hour: 60 })
 
     await ui.press({ key: 'limit-confirm:five_hour' })
@@ -400,7 +403,7 @@ describe('register', () => {
 
     const terminal = await $.ui.mount({ ...band(), surface: 'terminal' })
 
-    await terminal.press({ key: 'flag:seven_day' })
+    await terminal.press({ key: 'limit:seven_day' })
 
     expect(await terminal.find({ key: 'quota:five_hour' }), 'in place of the row on the terminal too').toBeUndefined()
 
