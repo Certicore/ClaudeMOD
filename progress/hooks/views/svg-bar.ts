@@ -1,4 +1,4 @@
-import { AMBER, AMBER_DEEP, EMERALD, hexOf, LAVENDER, mix, noise, seedOf, WHITE, type Rgb } from '../palette'
+import { AMBER, AMBER_DEEP, EMERALD, hexOf, INDIGO, INDIGO_BRIGHT, LAVENDER, mix, noise, seedOf, WHITE, type Rgb } from '../palette'
 
 /** What one desktop bar draws: its size, where it stands, how it moves, what its chip says. */
 export type SvgBar = {
@@ -177,6 +177,95 @@ export function svgBarOf(bar: SvgBar): string {
     `</text>` +
     (isDissolving ? `</g>` : '') +
     `</g>` +
+    (enter?.close ?? '') +
+    `</svg>`
+  )
+}
+
+/** What a waiting message's bar draws. */
+export type WaitingBar = {
+  id: string
+  width: number
+  height: number
+  /** Its place in the queue, from 1. */
+  position: number
+  padY?: number
+  /** The list just unfolded: the bar sweeps in after this many seconds. */
+  enterDelay?: number
+}
+
+/**
+ * A message waiting its turn: the same track, dark but for a sparse field
+ * of indigo LEDs breathing slowly, a soft glow gliding back and forth
+ * across it like a scanner, and at its start a glassy indigo chip,
+ * `⧗ Waiting #1`, its hourglass turning over now and then. Nothing fills:
+ * nothing has started.
+ */
+export function waitingBarOf(bar: WaitingBar): string {
+  const { width: w, height: h } = bar
+  const key = `q${bar.id.replace(/[^a-z0-9]/gi, '').slice(-20)}`
+  const padY = Math.max(0, Math.round(bar.padY ?? 0))
+  const chipH = h - 4
+  const label = 'Waiting'
+  const count = `#${bar.position}`
+  const icon = 12
+  const chipW = Math.round(icon + 5 + textWidth(label, 600) + COUNT_GAP + textWidth(count, 500) + CHIP_PAD * 2)
+  const seed = seedOf(bar.id)
+  const rows = Math.max(1, Math.floor((h - 4) / PITCH))
+  const top = Math.round((h - rows * PITCH + (PITCH - LED)) / 2)
+  const indigo = hexOf(INDIGO)
+  const enter = bar.enterDelay === undefined ? null : unfoldOf(`u${key}`, w, h, padY, bar.enterDelay)
+  const glide = 'calcMode="spline" keyTimes="0;0.5;1" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"'
+  let leds = ''
+
+  for (let x = chipW + 6, column = 0; x + LED <= w - 4; x += PITCH, column += 1) {
+    for (let row = 0; row < rows; row += 1) {
+      if (noise(seed, column * 31 + row, 1) > 0.17) {
+        continue
+      }
+
+      const phase = ['d', 'e', 'f'][Math.floor(noise(seed, column * 31 + row, 2) * 3)] ?? 'd'
+
+      leds += `<rect x="${x}" y="${top + row * PITCH}" width="${LED}" height="${LED}" rx="0.6" fill="${indigo}" class="${phase}"/>`
+    }
+  }
+
+  const cy = h / 2
+  const hx = CHIP_PAD + icon / 2
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h + padY * 2}" viewBox="0 ${-padY} ${w} ${h + padY * 2}">` +
+    `<style>@keyframes tz{0%,100%{opacity:.08}50%{opacity:.32}}` +
+    `.d{animation:tz 3.6s ease-in-out infinite}.e{animation:tz 4.8s ease-in-out 1.2s infinite}.f{animation:tz 4.1s ease-in-out 2.4s infinite}</style>` +
+    `<defs>` +
+    `<clipPath id="k${key}"><rect x="0" y="0" width="${w}" height="${h}" rx="${h / 2}"/></clipPath>` +
+    `<linearGradient id="d${key}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.09"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.08"/></linearGradient>` +
+    `<radialGradient id="s${key}"><stop offset="0" stop-color="${hexOf(INDIGO_BRIGHT)}" stop-opacity="0.6"/><stop offset="0.45" stop-color="${indigo}" stop-opacity="0.28"/><stop offset="1" stop-color="${indigo}" stop-opacity="0"/></radialGradient>` +
+    `<linearGradient id="c${key}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${hexOf(mix(INDIGO, 0x1c1c22, 0.35))}"/><stop offset="1" stop-color="${hexOf(mix(INDIGO, 0x1c1c22, 0.6))}"/></linearGradient>` +
+    (enter?.defs ?? '') +
+    `</defs>` +
+    (enter?.open ?? '') +
+    `<g clip-path="url(#k${key})">` +
+    `<rect x="0" y="0" width="${w}" height="${h}" fill="#8e8e96" fill-opacity="0.13"/>` +
+    leds +
+    // The scanner: a soft glow gliding from the chip to the end and back.
+    `<ellipse cx="${chipW}" cy="${cy}" rx="70" ry="${h * 0.9}" fill="url(#s${key})">` +
+    `<animate attributeName="cx" values="${chipW};${w - 30};${chipW}" dur="5.2s" repeatCount="indefinite" ${glide}/>` +
+    `</ellipse>` +
+    `<rect x="0" y="0" width="${w}" height="${h}" fill="url(#d${key})"/>` +
+    `</g>` +
+    `<rect x="0" y="2" width="${chipW}" height="${chipH}" rx="${chipH / 2}" fill="url(#c${key})"/>` +
+    `<rect x="0.5" y="2.5" width="${chipW - 1}" height="${chipH - 1}" rx="${(chipH - 1) / 2}" fill="none" stroke="${indigo}" stroke-opacity="0.75"/>` +
+    // The hourglass, turning over every few seconds.
+    `<g transform="translate(${hx} ${cy})"><g>` +
+    `<animateTransform attributeName="transform" type="rotate" values="0;0;180;180" keyTimes="0;0.72;0.86;1" dur="3s" repeatCount="indefinite"/>` +
+    `<path d="M-4 -5.5h8M-4 5.5h8M-3.2 -5.5c0 3 6.4 3 6.4 5.5s-6.4 2.5-6.4 5.5M3.2 -5.5c0 3-6.4 3-6.4 5.5s6.4 2.5 6.4 5.5" fill="none" stroke="${hexOf(INDIGO_BRIGHT)}" stroke-width="1.3" stroke-linecap="round"/>` +
+    `<path d="M-1.8 3.6h3.6l-1.8-2z" fill="${hexOf(INDIGO_BRIGHT)}"/>` +
+    `</g></g>` +
+    `<text x="${CHIP_PAD + icon + 5}" y="${cy + 0.5}" dominant-baseline="central" font-family="${FONT}" font-size="${FONT_SIZE}" fill="${hexOf(INDIGO_BRIGHT)}">` +
+    `<tspan font-weight="600">${label}</tspan>` +
+    `<tspan dx="${COUNT_GAP}" font-weight="500" fill-opacity="0.75">${count}</tspan>` +
+    `</text>` +
     (enter?.close ?? '') +
     `</svg>`
   )
@@ -584,6 +673,8 @@ export type RingSegment = {
   isDone: boolean
   /** Claude works on it now: a spark circles its ring. */
   isLive: boolean
+  /** A message waiting its turn: a dashed indigo ring, slowly turning. */
+  isWaiting?: boolean
 }
 
 /** The rings' height, a ring's diameter and the pitch between two, in CSS pixels. */
@@ -633,6 +724,16 @@ export function ringsOf(segments: readonly RingSegment[], isEntering: boolean): 
       body += `<line x1="${cx - RING_PITCH + RING_D / 2 + 3}" x2="${cx - RING_D / 2 - 3}" y1="${cy}" y2="${cy}" stroke="${done ? emerald : '#8e8e96'}" stroke-opacity="${done ? 0.55 : 0.3}" stroke-width="2" stroke-linecap="round"/>`
     }
 
+    if (segment.isWaiting === true) {
+      body +=
+        `<g${enter}` +
+        `<g class="wt" style="transform-origin:${cx}px ${cy}px"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${hexOf(INDIGO)}" stroke-width="2" stroke-dasharray="3.2 3.2" stroke-linecap="round"/></g>` +
+        `<circle class="br" cx="${cx}" cy="${cy}" r="2.4" fill="${hexOf(INDIGO)}"/>` +
+        `</g>`
+
+      return
+    }
+
     if (segment.isDone) {
       body +=
         `<g${enter}` +
@@ -665,7 +766,7 @@ export function ringsOf(segments: readonly RingSegment[], isEntering: boolean): 
     source:
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${RINGS_PX}" viewBox="0 0 ${width} ${RINGS_PX}">` +
       `<style>@keyframes br{0%,100%{opacity:.45}50%{opacity:1}}.br{animation:br 2.4s ease-in-out infinite}` +
-      `@keyframes or{to{transform:rotate(360deg)}}.or{animation:or 2.4s linear infinite}</style>` +
+      `@keyframes or{to{transform:rotate(360deg)}}.or{animation:or 2.4s linear infinite}.wt{animation:or 9s linear infinite}</style>` +
       `<defs>` +
       `<linearGradient id="rd" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${hexOf(mix(EMERALD, WHITE, 0.25))}"/><stop offset="1" stop-color="#149a6c"/></linearGradient>` +
       `<linearGradient id="ra" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#e6e1ff"/><stop offset="1" stop-color="${lavender}"/></linearGradient>` +

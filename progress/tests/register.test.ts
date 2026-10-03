@@ -86,6 +86,7 @@ function world(on: On, limits: readonly SessionRateLimit[] = []) {
   })
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [...limits] } }))
   on('session.root', () => ({ value: '/work' }))
+  on('session.id', () => ({ value: 'session-1' }))
   on('ui.toast', () => ({ value: undefined }))
   on('turn.abort', ($, e) => {
     aborted.push(e.turnId)
@@ -677,6 +678,84 @@ describe('register', () => {
     expect(blits.slice(before).some(blit => blit.key === 'meters'), 'no repaint of rows not drawn').toBe(false)
 
     await terminal.unmount()
+  })
+
+  test('a message sent while Claude works waits in a row of its own, until a queued report takes it up', async ($, on) => {
+    const { saved, clock } = world(on)
+
+    await $.session.start(SESSION)
+    await $.turn.start({ turnId: 't1', text: 'go' })
+    await report($, clock, { plan: 'Docs', step: 1, total: 3 })
+    await $.prompt.submit({ text: 'Also add a waiting row\nfor queued messages', origin: { kind: 'composer' }, wait: false, turnId: 't1' })
+    await $.prompt.submit({ text: '/progress', origin: { kind: 'composer' }, wait: false, turnId: 't1' })
+    await $.prompt.submit({ text: 'Build finished', origin: { kind: 'task-notification' }, wait: false, turnId: 't1' })
+    await $.prompt.submit({ text: 'Typed while idle', origin: { kind: 'composer' }, wait: false })
+    await clock.advance(SETTLED_MS)
+
+    const waiting = [...saved.entries()].filter(([key]) => key.includes(':waiting-'))
+
+    expect(waiting.length, 'one row, for the message typed over the turn').toBe(1)
+    expect(waiting[0]?.[1]).toMatchObject({ name: 'Also add a waiting row', waiting: { owner: 'session-1' } })
+
+    const ui = await $.ui.mount({ ...band(true), surface: 'desktop' })
+    const id = String((waiting[0]?.[1] as { id: string }).id)
+    const row = JSON.stringify(await ui.find({ key: `row:${id}` }))
+
+    expect(row, 'its first line, in italics').toContain('Also add a waiting row')
+    expect(row, 'the hourglass chip and its place in line').toMatch(/>Waiting<\/tspan>.*>#1<\/tspan>/)
+    expect(row, 'a scanner glides along the track').toContain('attributeName=\\"cx\\"')
+    expect(await ui.find({ key: `remove:${id}` }), 'it can be dismissed').toBeDefined()
+
+    await ui.unmount()
+
+    const terminal = await $.ui.mount({ ...band(true), surface: 'terminal' })
+    const rows = await rasterText(await terminal.find({ key: 'meters' }))
+
+    expect(rows[1], 'the terminal row').toContain('⧗ Waiting #1')
+    expect(await terminal.find({ type: 'Text', text: '1 running · 1 waiting' })).toBeDefined()
+
+    await terminal.unmount()
+
+    const answer = await report($, clock, { plan: 'Waiting rows', step: 0, total: 4, note: 'Model', queued: true })
+
+    expect(answer).toMatchObject({ result: expect.stringContaining('Took up the waiting message "Also add a waiting row"') })
+    expect(saved.has(HERE(id)), 'the waiting row is gone').toBe(false)
+    expect(saved.get(HERE('waiting-rows')), 'the plan stands in its place').toMatchObject({
+      createdAt: (waiting[0]?.[1] as { createdAt: number }).createdAt,
+    })
+
+    const lit = await $.ui.mount({ ...band(true), surface: 'desktop' })
+
+    expect(JSON.stringify(await lit.find({ key: 'row:waiting-rows' })), 'and lights up with a sweep').toContain('begin=\\"0.00s\\"')
+
+    await lit.unmount()
+  })
+
+  test('the turn ending clears its waiting rows, not another conversation\'s', async ($, on) => {
+    const { saved, clock } = world(on)
+
+    saved.set(HERE('waiting-other'), { id: 'waiting-other', name: 'Theirs', step: 0, total: 1, note: null, createdAt: 1, updatedAt: 1, waiting: { owner: 'session-2' } })
+
+    await $.session.start(SESSION)
+    await $.turn.start({ turnId: 't1', text: 'go' })
+    await $.prompt.submit({ text: 'Mine', origin: { kind: 'composer' }, wait: false, turnId: 't1' })
+    await clock.settle()
+
+    expect([...saved.keys()].filter(key => key.includes(':waiting-')).length).toBe(2)
+
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
+
+    expect([...saved.keys()].filter(key => key.includes(':waiting-')), 'only the other conversation\'s stays').toEqual([HERE('waiting-other')])
+
+    const ui = await $.ui.mount({ ...band(), surface: 'desktop' })
+
+    expect(JSON.stringify(await ui.find({ key: 'row:waiting-other' }))).toContain('Theirs')
+
+    await ui.press({ key: 'band-toggle' })
+
+    expect(JSON.stringify(await ui.find({ key: 'summary' })), 'a dashed ring on the folded line').toContain('stroke-dasharray=\\"3.2 3.2\\"')
+
+    await ui.unmount()
   })
 
   test('an accented name keys the plan by its letters', async ($, on) => {

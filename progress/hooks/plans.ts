@@ -17,6 +17,12 @@ export type Plan = {
   createdAt: number
   /** When the plan was last reported. */
   updatedAt: number
+  /**
+   * A message the person sent while Claude was busy, waiting its turn: a row
+   * of its own until Claude takes it up (a report with `queued`) or the turn
+   * ends; `owner` is the session it was sent in, which clears it.
+   */
+  waiting?: { owner: string }
 }
 
 /** What one `report_progress` call asks, once its input is read. */
@@ -27,6 +33,8 @@ export type Report = {
   note?: string
   isDone: boolean
   isRemoved: boolean
+  /** The plan takes up the oldest message waiting its turn: that row turns into it. */
+  isQueued: boolean
 }
 
 /** Why a `report_progress` input was refused. */
@@ -121,8 +129,27 @@ export function isPlan(value: unknown): value is Plan {
     plan.total >= 1 &&
     (plan.note === null || typeof plan.note === 'string') &&
     typeof plan.createdAt === 'number' &&
-    typeof plan.updatedAt === 'number'
+    typeof plan.updatedAt === 'number' &&
+    (plan.waiting === undefined || (typeof plan.waiting === 'object' && plan.waiting !== null && typeof (plan.waiting as { owner?: unknown }).owner === 'string'))
   )
+}
+
+/** True for a message waiting its turn rather than a plan. */
+export function isWaiting(plan: Pick<Plan, 'waiting'>): boolean {
+  return plan.waiting !== undefined
+}
+
+/** How long a waiting row outlives a session that never cleared it (a crash): then it is dropped on load. */
+export const WAITING_STALE_MS = 6 * 3_600_000
+
+const EXCERPT_MAX = 56
+
+/** A waiting row's name: the message's first line, its spaces folded, cut at EXCERPT_MAX with an ellipsis. */
+export function excerptOf(text: string): string {
+  const line = text.split('\n').map(each => each.trim()).find(each => each !== '') ?? ''
+  const folded = [...line.replace(/\s+/g, ' ')]
+
+  return folded.length > EXCERPT_MAX ? `${folded.slice(0, EXCERPT_MAX - 1).join('').trimEnd()}…` : folded.join('')
 }
 
 function isCount(value: unknown): value is number {
@@ -163,6 +190,7 @@ export function reportOf(input: Record<string, unknown>): Report | ReportError {
     name,
     isDone: input.done === true,
     isRemoved: input.remove === true,
+    isQueued: input.queued === true,
   }
 
   if (input.step !== undefined) {
@@ -199,6 +227,10 @@ export function reportOf(input: Record<string, unknown>): Report | ReportError {
 
   if (input.remove !== undefined && typeof input.remove !== 'boolean') {
     return { error: '"remove" must be true or false' }
+  }
+
+  if (input.queued !== undefined && typeof input.queued !== 'boolean') {
+    return { error: '"queued" must be true or false' }
   }
 
   return report
@@ -242,8 +274,12 @@ export function sortedPlans(plans: Iterable<Plan>): Plan[] {
   return [...plans].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 }
 
-/** One line for a plan: `name: 3/5 (60%)`, `done` when finished, the note after. */
+/** One line for a plan: `name: 3/5 (60%)`, `done` when finished, the note after; `name: waiting` for a waiting message. */
 export function summaryOf(plan: Plan): string {
+  if (isWaiting(plan)) {
+    return `${plan.name}: waiting`
+  }
+
   const state = isDone(plan) ? 'done' : `${percentOf(plan)}%`
   const note = plan.note === null ? '' : ` — ${plan.note}`
 

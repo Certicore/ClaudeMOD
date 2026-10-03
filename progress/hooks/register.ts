@@ -27,9 +27,11 @@ import { quotasOf, type Quota } from './usage'
 import { flashProgress, FILL_MS, FRAME_MS, isFilling, shownShare, type Fill } from './motion'
 import {
   applied,
+  excerptOf,
   idOf,
   isDone,
   isPlan,
+  isWaiting,
   folderKeyOf,
   keyOf,
   legacyKeyOf,
@@ -37,6 +39,7 @@ import {
   reportOf,
   sortedPlans,
   summaryOf,
+  WAITING_STALE_MS,
   type Plan,
 } from './plans'
 import {
@@ -81,7 +84,9 @@ const TOOL_DESCRIPTION =
   'complete (step n), and once more with done: true when the whole plan is ' +
   'finished. Reuse the exact same plan name to update a row, and give each call ' +
   'a note naming the stage you are entering in one to three words. Set remove: ' +
-  'true to drop a row. A chime plays when a step completes.'
+  'true to drop a row. A chime plays when a step completes. A message the user ' +
+  'sends while you work shows as a Waiting row; when you start a plan for it, ' +
+  'set queued: true and that row turns into your plan.'
 
 const INPUT_SCHEMA = {
   type: 'object',
@@ -115,6 +120,12 @@ const INPUT_SCHEMA = {
       type: 'boolean',
       description: "true to remove the plan's row.",
     },
+    queued: {
+      type: 'boolean',
+      description:
+        'true when this new plan takes up a message the user sent while you were working: ' +
+        'the oldest Waiting row turns into this plan.',
+    },
   },
   required: ['plan'],
   additionalProperties: false,
@@ -130,7 +141,9 @@ const PROMPT_SECTION: PromptComposeSection = {
     'plan of two or more steps, call it once when you start (step 0, total), ' +
     'again after each step you complete, and with done: true at the end, each ' +
     'time with a note naming the next stage in one to three words. Keep the ' +
-    'calls short and do not narrate them.',
+    'calls short and do not narrate them. A message the user sends while you ' +
+    'work shows in the band as Waiting: when you start a plan for it, report ' +
+    'that plan with queued: true.',
   scope: 'session',
 }
 
@@ -164,6 +177,10 @@ const fills = new Map<string, Fill>()
 const flashes = new Map<string, number>()
 /** When each plan whose ✕ was pressed began to come apart. */
 const removing = new Map<string, number>()
+/** When each plan that took up a waiting message lit up: its bar sweeps in once. */
+const ignites = new Map<string, number>()
+/** How long a lit-up plan's sweep plays. */
+const IGNITE_MS = 900
 /** The `sound` option: chimes play while true. */
 let isSoundOn = true
 /** The `usage` option: the 5-hour and 7-day windows show under the plans while true. */
@@ -269,8 +286,16 @@ export function register(on: On, options: PluginOptions): void {
     if (e.agentId === undefined) {
       isWorking = false
       runningTurn = null
+      // The messages sent during the turn have reached Claude by its end: none waits any more.
+      await clearWaiting($)
       $.ui.invalidate('ui.render')
     }
+
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    await clearWaiting($)
 
     return next(e)
   })
@@ -301,6 +326,11 @@ export function register(on: On, options: PluginOptions): void {
     if (pause !== null && e.origin.kind === 'composer') {
       await resumeWork($, false)
       $.ui.toast('Usage-limit pause lifted')
+    }
+
+    // A message the person sends while a turn runs waits its turn: it shows as a row of its own.
+    if (e.turnId !== undefined && isPersonOrigin(e.origin.kind) && e.text.trim() !== '' && !e.text.trim().startsWith('/')) {
+      await addWaiting($, e.text)
     }
 
     return next(e)
@@ -361,10 +391,20 @@ export function register(on: On, options: PluginOptions): void {
     }
 
     const now = await $.clock.now()
-    const updated = applied(previous, report, now)
+    const owner = report.isQueued && previous === undefined ? await $.session.id() : null
+    const taken = owner === null ? undefined : sortedPlans(plans.values()).find(plan => plan.waiting?.owner === owner)
+    const reported = applied(previous, report, now)
 
-    if ('error' in updated) {
-      return { result: `report_progress refused: ${updated.error}` }
+    if ('error' in reported) {
+      return { result: `report_progress refused: ${reported.error}` }
+    }
+
+    // A plan that takes up a waiting message stands in its row, and lights up there.
+    const updated = taken === undefined ? reported : { ...reported, createdAt: taken.createdAt }
+
+    if (taken !== undefined) {
+      await removePlan($, taken.id)
+      ignites.set(updated.id, now)
     }
 
     const fromShare = shareAt(previous, now)
@@ -398,7 +438,9 @@ export function register(on: On, options: PluginOptions): void {
       playSound($, STEP_SOUND)
     }
 
-    return { result: `Progress band: ${summaryOf(updated)}` }
+    return {
+      result: `${taken === undefined ? '' : `Took up the waiting message "${taken.name}". `}Progress band: ${summaryOf(updated)}`,
+    }
   }).catch(($, e, next) => ({
     result: `report_progress failed (${next.error.kind}): ${next.error.message}`,
   }))
@@ -432,7 +474,7 @@ export function register(on: On, options: PluginOptions): void {
     }
 
     const lines = sortedPlans(plans.values()).map(
-      plan => `${isDone(plan) ? '✓' : '·'} ${summaryOf(plan)}`,
+      plan => `${isWaiting(plan) ? '◌' : isDone(plan) ? '✓' : '·'} ${summaryOf(plan)}`,
     )
 
     return {
@@ -549,11 +591,14 @@ function drawBand(
 function framesAt(now: number): PlanFrame[] {
   const ordered = sortedPlans(plans.values())
   const active = ordered
-    .filter(plan => !isDone(plan))
+    .filter(plan => !isDone(plan) && !isWaiting(plan))
     .reduce<Plan | null>((latest, plan) => (latest === null || plan.updatedAt > latest.updatedAt ? plan : latest), null)
+
+  const queue = ordered.filter(isWaiting).map(plan => plan.id)
 
   return ordered.map(plan => {
     const removedAt = removing.get(plan.id)
+    const position = queue.indexOf(plan.id)
 
     return {
       plan,
@@ -561,6 +606,8 @@ function framesAt(now: number): PlanFrame[] {
       flash: flashProgress(flashes.get(plan.id), now),
       isActive: active !== null && plan.id === active.id,
       dissolve: removedAt === undefined ? null : Math.max(0, Math.min(1, (now - removedAt) / DISSOLVE_MS)),
+      isIgniting: now - (ignites.get(plan.id) ?? Number.NEGATIVE_INFINITY) < IGNITE_MS,
+      ...(position === -1 ? {} : { queue: position + 1 }),
     }
   })
 }
@@ -1110,6 +1157,7 @@ async function loadPlans($: EngineInterface): Promise<void> {
   }
 
   const mine = await folderOf($)
+  const now = await $.clock.now()
   const loaded = new Map<string, Plan>()
   const orphans = new Map<string, Plan>()
 
@@ -1126,7 +1174,10 @@ async function loadPlans($: EngineInterface): Promise<void> {
       continue
     }
 
-    if ('folder' in parsed) {
+    if ('folder' in parsed && isWaiting(value) && now - value.createdAt > WAITING_STALE_MS) {
+      // A waiting row its session never cleared (it crashed): nothing waits on it any more.
+      await $.store.delete(key).catch(() => undefined)
+    } else if ('folder' in parsed) {
       loaded.set(value.id, value)
     } else if (isDone(value)) {
       await $.store.delete(key).catch(() => undefined)
@@ -1159,11 +1210,53 @@ async function dissolvePlan($: EngineInterface, id: string): Promise<void> {
 }
 
 /** Drops a plan from the band, then from the store. */
+/** Whether a prompt came from the person (typed, from Remote Control, from the desktop app's SDK host), not a notification or a peer. */
+function isPersonOrigin(kind: string): boolean {
+  return kind === 'composer' || kind === 'bridge' || kind === 'sdk'
+}
+
+/** Adds a row for a message sent while Claude works, named after its first line, waiting its turn. */
+async function addWaiting($: EngineInterface, text: string): Promise<void> {
+  await ensureLoaded($)
+
+  const now = await $.clock.now()
+  const owner = await $.session.id()
+  let id = `waiting-${Math.round(now).toString(36)}`
+
+  for (let n = 2; plans.has(id); n += 1) {
+    id = `waiting-${Math.round(now).toString(36)}-${n}`
+  }
+
+  const plan: Plan = { id, name: excerptOf(text), step: 0, total: 1, note: null, createdAt: now, updatedAt: now, waiting: { owner } }
+
+  plans.set(id, plan)
+  $.ui.invalidate('ui.render')
+  startLoop($)
+
+  try {
+    await $.store.set(keyOf(await folderOf($), id), plan)
+  } catch {
+    // The row shows in this session only.
+  }
+}
+
+/** Drops this session's waiting rows: its turn is over, or the session is. */
+async function clearWaiting($: EngineInterface): Promise<void> {
+  const owner = await $.session.id().catch(() => null)
+
+  for (const plan of [...plans.values()]) {
+    if (owner !== null && plan.waiting?.owner === owner) {
+      await removePlan($, plan.id)
+    }
+  }
+}
+
 async function removePlan($: EngineInterface, id: string): Promise<void> {
   plans.delete(id)
   fills.delete(id)
   flashes.delete(id)
   removing.delete(id)
+  ignites.delete(id)
   $.ui.invalidate('ui.render')
 
   try {

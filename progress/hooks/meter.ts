@@ -7,6 +7,8 @@ import {
   EMERALD,
   EMERALD_DEEP,
   EMERALD_DIM,
+  INDIGO,
+  INDIGO_BRIGHT,
   LAVENDER,
   LAVENDER_DEEP,
   LAVENDER_DIM,
@@ -35,6 +37,10 @@ export type PlanFrame = {
   isActive: boolean
   /** How far the plan's row has come apart since its ✕ was pressed, 0 to 1, or null. */
   dissolve?: number | null
+  /** The plan just took up a waiting message: its bar sweeps in once. */
+  isIgniting?: boolean
+  /** A waiting message's place in the queue, from 1; absent for a plan. */
+  queue?: number
 }
 
 /** What every row of a frame shares: the instant, whether Claude is working, whether a limit holds the work. */
@@ -80,6 +86,10 @@ export function meterRow(frame: PlanFrame, context: FrameContext, widths: MeterW
     return dissolvingRow(frame, context, widths, frame.dissolve)
   }
 
+  if (frame.queue !== undefined) {
+    return waitingRow(frame.queue, context, widths)
+  }
+
   const { plan } = frame
   const done = isDone(plan) && frame.share >= 0.999
   const flash = frame.flash === null ? 0 : 1 - easeOutCubic(frame.flash)
@@ -122,6 +132,40 @@ export function meterRow(frame: PlanFrame, context: FrameContext, widths: MeterW
  * flashes white and crumbles into sparkles; the track, the percent and the
  * caps fade away last.
  */
+/** How long the waiting scanner takes to cross the track and come back. */
+const SCAN_MS = 5200
+
+/**
+ * A waiting message's row on the terminal: an indigo chip `⧗ Waiting #1` at
+ * the start, a dotted track, and a soft glow gliding back and forth along
+ * it; no percent, as nothing has started.
+ */
+function waitingRow(position: number, context: FrameContext, widths: MeterWidths): Cell[] {
+  const inner = Math.max(4, widths.bar - 2)
+  const ground: Rgb = mix(INDIGO, TRACK, 0.55)
+  const text = [...`⧗ Waiting #${position}`].slice(0, Math.max(1, inner - 2))
+  const chip = [cellOf('▐', ground, TRACK), ...text.map(glyph => cellOf(glyph, INDIGO_BRIGHT, ground)), cellOf('▌', ground, TRACK)]
+  const span = Math.max(1, inner - chip.length - 1)
+  const phase = (context.now % SCAN_MS) / SCAN_MS
+  const glide = (1 - Math.cos(phase * 2 * Math.PI)) / 2
+  const centre = chip.length + glide * span
+  const cells: Cell[] = [cellOf('▐', TRACK), ...chip]
+
+  for (let i = chip.length; i < inner; i += 1) {
+    const light = Math.max(0, 1 - Math.abs(i - centre) / 4)
+
+    cells.push(cellOf(light > 0.6 ? '⠶' : light > 0.15 ? '⠤' : '⠂', mix(mix(TRACK, INDIGO, 0.35), INDIGO_BRIGHT, light), TRACK))
+  }
+
+  cells.push(cellOf('▌', TRACK))
+
+  for (let i = 0; i < GAP + PERCENT_CELLS; i += 1) {
+    cells.push(BLANK)
+  }
+
+  return cells
+}
+
 function dissolvingRow(frame: PlanFrame, context: FrameContext, widths: MeterWidths, progress: number): Cell[] {
   const done = isDone(frame.plan)
   const living = meterRow({ ...frame, dissolve: null }, context, widths)
@@ -209,6 +253,10 @@ function chipCellsOf(plan: Plan, done: boolean, flash: number, inner: number, pa
 export function glyphCell(frame: PlanFrame, context: FrameContext): Cell {
   if (frame.dissolve !== undefined && frame.dissolve !== null) {
     return frame.dissolve > 0.6 ? BLANK : cellOf('✕', mix(DANGER, TRACK, frame.dissolve / 0.6))
+  }
+
+  if (frame.queue !== undefined) {
+    return cellOf('◌', mix(INDIGO, TRACK, 0.3 + 0.3 * Math.sin(context.now / 500)))
   }
 
   if (isDone(frame.plan)) {

@@ -22,7 +22,7 @@ import {
   type PlanFrame,
 } from '../meter'
 import { AMBER, DANGER, EMERALD, hexOf, INDIGO, LAVENDER, MUTED, seedOf, WHITE } from '../palette'
-import { chipOf, isDone } from '../plans'
+import { chipOf, isDone, isWaiting } from '../plans'
 import { encodeRows } from '../raster'
 import { quotaColorOf, remainingShortOf, remainingTextOf, resetShortOf, resetTextOf, type Quota } from '../usage'
 import {
@@ -35,7 +35,7 @@ import {
   terminalLimitPicker,
   type GuardView,
 } from './guard'
-import { burstLayerOf, chipCentreOf, chipGeometryOf, quotaBarOf, ringsOf, RINGS_PX, svgBarOf } from './svg-bar'
+import { burstLayerOf, chipCentreOf, chipGeometryOf, quotaBarOf, ringsOf, RINGS_PX, svgBarOf, waitingBarOf } from './svg-bar'
 
 type Box = ElementConstructor<BoxProps>
 type Text = ElementConstructor<TextProps>
@@ -106,14 +106,20 @@ const DESKTOP_BAR_GAP_PX = 5
 
 /** The header's right side: how many plans run and how many are done. */
 export function summaryOf(frames: readonly PlanFrame[]): string {
+  const waiting = frames.filter(frame => isWaiting(frame.plan)).length
   const done = frames.filter(frame => isDone(frame.plan)).length
-  const running = frames.length - done
+  const running = frames.length - done - waiting
+  const queued = waiting === 0 ? '' : ` · ${waiting} waiting`
 
-  if (running === 0) {
-    return done === 1 ? 'done ✓' : `all ${done} done ✓`
+  if (running === 0 && done > 0) {
+    return (done === 1 ? 'done ✓' : `all ${done} done ✓`) + queued
   }
 
-  return done === 0 ? `${running} running` : `${running} running · ${done} done`
+  if (running === 0) {
+    return `${waiting} waiting`
+  }
+
+  return (done === 0 ? `${running} running` : `${running} running · ${done} done`) + queued
 }
 
 /** The name column: the longest name, within limits set by the band's width. */
@@ -180,8 +186,9 @@ export function terminalBandView(ui: TerminalKit, model: BandModel, layout: Term
         <Box flexDirection="column" width={layout.name} flexShrink={0}>
           {frames.map(frame => (
             <Text
-              bold={!isDone(frame.plan) && !isGoing(frame)}
-              dimColor={isDone(frame.plan) || isGoing(frame)}
+              bold={!isDone(frame.plan) && !isGoing(frame) && !isWaiting(frame.plan)}
+              dimColor={isDone(frame.plan) || isGoing(frame) || isWaiting(frame.plan)}
+              italic={isWaiting(frame.plan)}
               strikethrough={isGoing(frame)}
               wrap="truncate-end"
               hover={{ scope: scopeOf(frame), color: hexOf(WHITE), dimColor: false }}
@@ -342,6 +349,12 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
         const isPaused = pause !== null && !done
         const label = isPaused ? 'Paused' : chip.label
         const { count } = chip
+        const enterDelay = model.fold.isAnimating ? { enterDelay: index * 0.07 } : frame.isIgniting === true ? { enterDelay: 0 } : {}
+
+        if (frame.queue !== undefined) {
+          return desktopWaitingRow(ui, model, frame, frame.queue, name, barPx, enterDelay)
+        }
+
         const source = svgBarOf({
           id: plan.id,
           width: barPx,
@@ -358,7 +371,7 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
           isPaused,
           padY: DESKTOP_BAR_GAP_PX,
           isDissolving: isGoing(frame),
-          ...(model.fold.isAnimating ? { enterDelay: index * 0.07 } : {}),
+          ...enterDelay,
         })
 
         return (
@@ -426,6 +439,19 @@ export function plainBandView(ui: PlainKit, model: BandModel): RenderElement {
         </Box>
       )}
       {model.frames.map(frame => {
+        if (isWaiting(frame.plan)) {
+          return (
+            <Box key={`row:${frame.plan.id}`} flexDirection="row" gap={1}>
+              <Text color={hexOf(INDIGO)}>◦</Text>
+              <Text italic wrap="truncate-end">
+                {frame.plan.name}
+              </Text>
+              <Text color={hexOf(INDIGO)}>{`Waiting #${frame.queue ?? 1}`}</Text>
+              {removeButton(ui.Button, model, frame)}
+            </Box>
+          )
+        }
+
         const done = isDone(frame.plan)
         const target = done ? 1 : frame.plan.step / frame.plan.total
         const filled = Math.round(target * 20)
@@ -450,6 +476,47 @@ export function plainBandView(ui: PlainKit, model: BandModel): RenderElement {
         </Text>
       ) : null}
       {model.theirs}
+    </Box>
+  )
+}
+
+/**
+ * A message waiting its turn on the desktop: a hollow indigo dot, its first
+ * line in italics, the waiting bar (a scanner glow and an hourglass chip with
+ * its place in the queue), no percent, and the ✕.
+ */
+function desktopWaitingRow(
+  ui: DesktopKit,
+  model: BandModel,
+  frame: PlanFrame,
+  position: number,
+  name: number,
+  barPx: number,
+  enterDelay: { enterDelay?: number },
+): RenderElement {
+  const { Box, Text, Svg } = ui
+  const { plan } = frame
+
+  return (
+    <Box key={`row:${plan.id}`} flexDirection="row" gap={1} alignItems="center">
+      <Text color={hexOf(INDIGO)}>◦</Text>
+      <Box width={name} flexShrink={0}>
+        <Text italic dimColor strikethrough={isGoing(frame)} wrap="truncate-end">
+          {plan.name}
+        </Text>
+      </Box>
+      <Box key={`bar:${plan.id}`} position="relative" flexShrink={0}>
+        <Svg
+          source={waitingBarOf({ id: plan.id, width: barPx, height: DESKTOP_BAR_PX, position, padY: DESKTOP_BAR_GAP_PX, ...enterDelay })}
+          alt={`${plan.name}: waiting, #${position} in line`}
+          width={barPx}
+          height={DESKTOP_BAR_PX + DESKTOP_BAR_GAP_PX * 2}
+        />
+      </Box>
+      <Box width={5} flexShrink={0}>
+        <Text> </Text>
+      </Box>
+      {isGoing(frame) ? <Text> </Text> : removeButton(ui.Button, model, frame)}
     </Box>
   )
 }
@@ -523,20 +590,25 @@ function foldButton(Button: Button, model: BandModel, isNative: boolean): Render
 
 /** The folded line's words: the plan under way (or `All done`), its step and how many are done, and the overall percent. */
 function foldedFactsOf(frames: readonly PlanFrame[]): { title: string; detail: string; percent: number; isAllDone: boolean } {
-  const done = frames.filter(frame => isDone(frame.plan)).length
-  const running = frames.filter(frame => !isDone(frame.plan))
+  const waiting = frames.filter(frame => isWaiting(frame.plan))
+  const plans = frames.filter(frame => !isWaiting(frame.plan))
+  const done = plans.filter(frame => isDone(frame.plan)).length
+  const running = plans.filter(frame => !isDone(frame.plan))
   const active = running.find(frame => frame.isActive) ?? running.at(-1)
-  const overall = frames.reduce((sum, frame) => sum + (isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total), 0) / Math.max(1, frames.length)
+  const overall = plans.reduce((sum, frame) => sum + (isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total), 0) / Math.max(1, plans.length)
+  const queued = waiting.length > 0 ? ` · ${waiting.length} waiting` : ''
 
   if (active === undefined) {
-    return { title: 'All done', detail: tasksWordOf(frames), percent: 100, isAllDone: true }
+    return plans.length === 0
+      ? { title: waiting[0]?.plan.name ?? 'Waiting', detail: `${waiting.length} waiting`, percent: 0, isAllDone: false }
+      : { title: 'All done', detail: `${tasksWordOf(plans)}${queued}`, percent: 100, isAllDone: true }
   }
 
   const others = running.length > 1 ? ` · ${running.length - 1} more` : ''
 
   return {
     title: active.plan.name,
-    detail: `${chipOf(active.plan).count}${done > 0 ? ` · ${done} done` : ''}${others}`,
+    detail: `${chipOf(active.plan).count}${done > 0 ? ` · ${done} done` : ''}${others}${queued}`,
     percent: shownPercent(overall),
     isAllDone: false,
   }
@@ -558,6 +630,7 @@ function desktopRingsRow(ui: DesktopKit, model: BandModel): RenderElement {
       share: isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total,
       isDone: isDone(frame.plan),
       isLive: context.isWorking && frame.isActive,
+      isWaiting: isWaiting(frame.plan),
     })),
     model.fold.isAnimating,
   )
@@ -600,8 +673,8 @@ function terminalRingsRow(ui: TerminalKit, model: BandModel): RenderElement {
         {frames.map((frame, index) => (
           <Box key={`ring:${frame.plan.id}`} flexDirection="row">
             {index > 0 ? <Text color={hexOf(isDone(frames[index - 1]?.plan ?? frame.plan) ? EMERALD : MUTED)} dimColor>─</Text> : null}
-            <Text bold color={hexOf(isDone(frame.plan) ? EMERALD : LAVENDER)}>
-              {isDone(frame.plan) ? '✓' : ringGlyphOf(frame.plan.step / frame.plan.total)}
+            <Text bold color={hexOf(isWaiting(frame.plan) ? INDIGO : isDone(frame.plan) ? EMERALD : LAVENDER)}>
+              {isWaiting(frame.plan) ? '◌' : isDone(frame.plan) ? '✓' : ringGlyphOf(frame.plan.step / frame.plan.total)}
             </Text>
           </Box>
         ))}
