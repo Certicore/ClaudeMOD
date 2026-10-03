@@ -353,7 +353,7 @@ describe('register', () => {
 
     expect(await picker(), 'with no limit, the dial invites a click').toContain('click the bar to set a limit')
     expect(await ui.find({ key: 'dial-step:five_hour:40' }), 'the track is clickable').toBeDefined()
-    expect(await picker(), 'each step shows its percent under the pointer').toContain('40%')
+    expect(JSON.stringify(await ui.find({ key: 'dial-readout:five_hour' })), 'the readout beside the dial holds each percent').toContain('→ 40%')
 
     await ui.press({ key: 'dial-step:five_hour:40' })
 

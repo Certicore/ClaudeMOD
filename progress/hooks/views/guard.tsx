@@ -187,6 +187,33 @@ export function limitFlagButton(Button: Button, guard: GuardView, quota: Quota):
   )
 }
 
+/**
+ * The readout beside the dial: one place where the percent under the
+ * pointer shows, `→ 40%`; each value is its own hidden line, lit by the
+ * hover group of its click target on the track.
+ */
+function hoverReadoutOf(ui: { Box: Box; Text: Text }, quota: Quota): RenderElement {
+  const { Box, Text } = ui
+
+  return (
+    <Box key={`dial-readout:${quota.kind}`} position="relative" width={7} flexShrink={0}>
+      <Text> </Text>
+      {limitSteps().map(value => (
+        <Box
+          key={`dial-readout:${quota.kind}:${value}`}
+          position="absolute"
+          top={0}
+          left={0}
+          display="none"
+          hover={{ scope: stepScopeOf(quota.kind, value), display: 'flex' }}
+        >
+          <Text bold color={hexOf(AMBER)}>{`→ ${value}%`}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
 /** The desktop limit dial's width, in CSS pixels. */
 const DIAL_PX = 300
 
@@ -204,15 +231,21 @@ function limitSteps(): number[] {
   return steps
 }
 
+/** The hover group tying a click target on the track to its percent in the readout. */
+function stepScopeOf(kind: string, value: number): string {
+  return `dial:${kind}:${value}`
+}
+
 /**
  * The dial's click layer: one invisible target per 5% laid across the
  * track, each centred on its value (the spacers before and after keep the
- * track's own proportions). Under the pointer a target shows a bubble with
- * its percent, through the surface's own hover reveal (no event, no code
- * runs); a click sets the limit there and the bar slides to it.
+ * track's own proportions). Nothing it reveals sits on the track: the
+ * percent under the pointer shows in the readout beside the dial, so a fast
+ * sweep never leaves a trail of bubbles behind. A click sets the limit there
+ * and the bar slides to it.
  */
-function clickLayerOf(ui: { Box: Box; Text: Text; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
-  const { Box, Text, Button } = ui
+function clickLayerOf(ui: { Box: Box; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
+  const { Box, Button } = ui
 
   return (
     <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" alignItems="stretch">
@@ -226,10 +259,12 @@ function clickLayerOf(ui: { Box: Box; Text: Text; Button: Button }, guard: Guard
           justifyContent="flex-end"
           alignItems="center"
         >
-          <Box position="absolute" top={0} display="none" hover={{ display: 'flex' }} backgroundColor={hexOf(value === guard.draft ? AMBER : 0x3a3a42)} paddingX={1}>
-            <Text bold color="#ffffff">{`${value}%`}</Text>
-          </Box>
-          <Button key={`dial-step:${quota.kind}:${value}`} plain hover={{ color: hexOf(AMBER) }} onPress={() => guard.onPick(value)}>
+          <Button
+            key={`dial-step:${quota.kind}:${value}`}
+            plain
+            hover={{ scope: stepScopeOf(quota.kind, value), color: hexOf(AMBER) }}
+            onPress={() => guard.onPick(value)}
+          >
             {BLANK_LABEL}
           </Button>
         </Box>
@@ -290,6 +325,7 @@ export function desktopLimitPicker(
         />
         {clickLayerOf(ui, guard, quota)}
       </Box>
+      {hoverReadoutOf(ui, quota)}
       {current === undefined ? null : (
         <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={() => guard.onSetLimit(quota.kind, null)}>
           Remove

@@ -54,11 +54,18 @@ describe('guard-view', () => {
     const picked: number[] = []
     const elements = walk(desktopLimitPicker(table(), guard(25, picked), QUOTA))
     const steps = elements.filter(each => String(each.props.key ?? '').startsWith('dial-step:five_hour:'))
-    const bubbles = elements.filter(each => each.type === 'Box' && each.props.display === 'none')
+    const readouts = elements.filter(each => each.type === 'Box' && each.props.display === 'none')
+    const scopeOf = (each: Drawn) => (each.props.hover as { scope?: string } | undefined)?.scope
 
     expect(steps.length, 'one per 5% step, 5% to 90%').toBe(18)
-    expect(bubbles.length, 'a percent bubble per step').toBe(18)
-    expect(bubbles.every(each => (each.props.hover as { display?: string } | undefined)?.display === 'flex'), 'shown under the pointer').toBe(true)
+    expect(readouts.length, 'a readout line per step').toBe(18)
+    expect(readouts.every(each => (each.props.hover as { display?: string } | undefined)?.display === 'flex'), 'shown while its step is hovered').toBe(true)
+    expect(readouts.map(scopeOf), 'each readout lit by its own step').toEqual(steps.map(scopeOf))
+    expect(new Set(steps.map(scopeOf)).size, 'one hover group per step').toBe(18)
+    expect(
+      elements.some(each => String(each.props.key ?? '').startsWith('dial-slot:') && JSON.stringify(each.props.children ?? '').includes('display')),
+      'nothing revealed on the track itself',
+    ).toBe(false)
     expect(elements.some(each => each.type === 'Client'), 'no drag region on the desktop').toBe(false)
     expect(elements.some(each => String(each.props.key ?? '').startsWith('nudge:')), 'no arrows').toBe(false)
 
