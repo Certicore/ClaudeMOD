@@ -339,8 +339,8 @@ describe('register', () => {
     await ui.unmount()
   })
 
-  test('a quota label opens the dial; a click on the track sets the limit, another moves it', async ($, on) => {
-    const { saved } = world(on, LIMITS)
+  test('a quota label puts its dial in place of the row; clicks move the bar, ✓ keeps it and brings both windows back', async ($, on) => {
+    const { saved, clock } = world(on, LIMITS)
 
     await $.session.start(SESSION)
 
@@ -351,27 +351,37 @@ describe('register', () => {
 
     await ui.press({ key: 'limit:five_hour' })
 
+    expect(await ui.find({ key: 'quota:seven_day' }), 'the dial takes the place of the quota row').toBeUndefined()
     expect(await picker(), 'with no limit, the dial invites a click').toContain('click the bar to set a limit')
+    expect(await picker(), 'it opens out of its middle').toContain('clip-path=\\"url(#op)\\"')
     expect(await ui.find({ key: 'dial-step:five_hour:40' }), 'the track is clickable').toBeDefined()
     expect(JSON.stringify(await ui.find({ key: 'dial-readout:five_hour' })), 'the readout beside the dial holds each percent').toContain('→ 40%')
+    expect(JSON.stringify(await ui.find({ key: 'confirm:five_hour' })), 'the ✓ draws its check').toContain('stroke-dashoffset')
 
     await ui.press({ key: 'dial-step:five_hour:40' })
 
-    expect(saved.get('limits'), 'set at the click').toEqual({ five_hour: 40 })
+    expect(saved.get('limits'), 'nothing kept before the ✓').toBeUndefined()
     expect(await picker(), 'the bar stands at 40%').toContain('pause at 40%')
-    expect(await ui.find({ key: 'dial-step:five_hour:60' }), 'the picker stays open').toBeDefined()
 
     await ui.press({ key: 'dial-step:five_hour:60' })
 
-    expect(saved.get('limits')).toEqual({ five_hour: 60 })
     expect(await picker(), 'another click moves the bar').toContain('pause at 60%')
     expect(await picker(), 'and it slides there').toContain('animateTransform')
 
-    await ui.press({ key: 'editor-close:five_hour' })
+    await ui.press({ key: 'limit-confirm:five_hour' })
 
-    expect(await ui.find({ key: 'editor:five_hour' }), 'the picker closes').toBeUndefined()
+    const row = JSON.stringify(await ui.find({ key: 'quotas' }))
+
+    expect(saved.get('limits'), 'the ✓ keeps it').toEqual({ five_hour: 60 })
+    expect(await ui.find({ key: 'editor:five_hour' }), 'the picker gives way').toBeUndefined()
+    expect(await ui.find({ key: 'quota:seven_day' }), 'both windows are back').toBeDefined()
     expect((await ui.find({ key: 'flag:five_hour' }))?.text).toBe('⚑ 60%')
-    expect(JSON.stringify(await ui.find({ key: 'quota:five_hour' })), 'an amber notch marks the limit on the gauge').toContain('#f5a524')
+    expect(JSON.stringify(await ui.find({ key: 'quota:five_hour' })), 'its notch drops in with a ring of light').toContain('#f5a524')
+    expect(row, 'the capsules grow back out').toContain('attributeName=\\"width\\" from=\\"8\\"')
+
+    await clock.advance(SETTLED_MS)
+
+    expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'at rest afterwards').not.toContain('from=\\"8\\"')
 
     await ui.press({ key: 'flag:five_hour' })
 
@@ -379,17 +389,26 @@ describe('register', () => {
 
     await ui.press({ key: 'limit-off:five_hour' })
 
-    expect(saved.get('limits'), 'Remove lifts a limit').toEqual({})
+    expect(await picker(), 'Remove clears the dial').toContain('click the bar to set a limit')
+    expect(saved.get('limits'), 'until the ✓').toEqual({ five_hour: 60 })
+
+    await ui.press({ key: 'limit-confirm:five_hour' })
+
+    expect(saved.get('limits'), 'the ✓ lifts it').toEqual({})
 
     await ui.unmount()
 
     const terminal = await $.ui.mount({ ...band(), surface: 'terminal' })
 
     await terminal.press({ key: 'flag:seven_day' })
+
+    expect(await terminal.find({ key: 'quota:five_hour' }), 'in place of the row on the terminal too').toBeUndefined()
+
     await terminal.press({ key: 'nudge:seven_day:up' })
-    await terminal.press({ key: 'limit-set:seven_day' })
+    await terminal.press({ key: 'limit-confirm:seven_day' })
 
     expect(saved.get('limits'), 'the terminal keeps its arrows').toEqual({ seven_day: 30 })
+    expect(await terminal.find({ key: 'quota:five_hour' })).toBeDefined()
 
     await terminal.unmount()
   })

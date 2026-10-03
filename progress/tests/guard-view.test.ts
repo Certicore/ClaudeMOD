@@ -33,6 +33,8 @@ function guard(draft: number | null, picked: number[]): GuardView {
     editing: 'five_hour',
     draft,
     draftFrom: null,
+    isOpening: false,
+    justSet: null,
     isDragReady: false,
     pause: null,
     onEdit: () => {},
@@ -41,7 +43,7 @@ function guard(draft: number | null, picked: number[]): GuardView {
     onPick: limit => {
       picked.push(limit)
     },
-    onSetLimit: () => {},
+    onClear: () => {},
     onSave: () => {},
     onResume: () => {},
   }
@@ -52,7 +54,7 @@ const QUOTA = { kind: 'five_hour', label: '5h', remaining: 62 }
 describe('guard-view', () => {
   test('the desktop dial is a row of click targets, each showing its percent on hover', () => {
     const picked: number[] = []
-    const elements = walk(desktopLimitPicker(table(), guard(25, picked), QUOTA))
+    const elements = walk(desktopLimitPicker(table(), guard(25, picked), QUOTA, 1))
     const steps = elements.filter(each => String(each.props.key ?? '').startsWith('dial-step:five_hour:'))
     const readouts = elements.filter(each => each.type === 'Box' && each.props.display === 'none')
     const scopeOf = (each: Drawn) => (each.props.hover as { scope?: string } | undefined)?.scope
@@ -76,7 +78,7 @@ describe('guard-view', () => {
   })
 
   test('with no limit yet, the dial asks for a click', () => {
-    const elements = walk(desktopLimitPicker(table(), guard(null, []), QUOTA))
+    const elements = walk(desktopLimitPicker(table(), guard(null, []), QUOTA, 1))
     const svg = elements.find(each => each.type === 'Svg')
 
     expect(String(svg?.props.source)).toContain('click the bar to set a limit')

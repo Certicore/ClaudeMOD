@@ -211,8 +211,7 @@ export function terminalBandView(ui: TerminalKit, model: BandModel, layout: Term
         </Box>
       </Box>
       ) : null}
-      {model.quotas.length > 0 ? terminalQuotaRow(ui, model) : null}
-      {editorOf(ui, model)}
+      {model.quotas.length > 0 ? (editedOf(model) === undefined ? terminalQuotaRow(ui, model) : terminalLimitPicker(ui, model.guard, editedOf(model) as Quota)) : null}
       {model.theirs}
     </Box>
   )
@@ -254,15 +253,9 @@ function terminalQuotaRow(ui: TerminalKit, model: BandModel): RenderElement {
   )
 }
 
-/** The picker of the window being edited, if any, under the quota row. */
-function editorOf(ui: TerminalKit | DesktopKit, model: BandModel): RenderElement | null {
-  const quota = model.quotas.find(each => each.kind === model.guard.editing)
-
-  if (quota === undefined) {
-    return null
-  }
-
-  return 'Svg' in ui ? desktopLimitPicker(ui, model.guard, quota) : terminalLimitPicker(ui, model.guard, quota)
+/** The window whose limit picker stands in the quota row's place, if any. */
+function editedOf(model: BandModel): Quota | undefined {
+  return model.quotas.find(each => each.kind === model.guard.editing)
 }
 
 /** The terminal alert wave's width: the band less the frame and its padding. */
@@ -289,7 +282,18 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
           <Box key={`quota:${quota.kind}`} flexDirection="row" gap={1} alignItems="center" flexShrink={0} marginLeft={index === 0 ? 0 : 3}>
             {limitLabelButton(ui.Button, model.guard, quota)}
             <Svg
-              source={quotaBarOf({ kind: quota.kind, remaining: quota.remaining, color, limit: model.guard.limits[quota.kind] }, QUOTA_BAR_PX, 10)}
+              source={quotaBarOf(
+                {
+                  kind: quota.kind,
+                  remaining: quota.remaining,
+                  color,
+                  limit: model.guard.limits[quota.kind],
+                  isReturning: model.guard.justSet !== null,
+                  isConfirmed: model.guard.justSet === quota.kind,
+                },
+                QUOTA_BAR_PX,
+                10,
+              )}
               alt={`${quota.label}: ${remainingTextOf(quota.remaining)}`}
               width={QUOTA_BAR_PX}
               height={10}
@@ -386,12 +390,17 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
           </Box>
         )
       })}
-      {model.quotas.length > 0 ? desktopQuotaRow(ui, model) : frames.length > 0 ? (
+      {model.quotas.length > 0 ? (
+        editedOf(model) === undefined ? (
+          desktopQuotaRow(ui, model)
+        ) : (
+          desktopLimitPicker(ui, model.guard, editedOf(model) as Quota, frames.length > 0 ? 1 : 0)
+        )
+      ) : frames.length > 0 ? (
         <Box key="quotas" flexDirection="row" marginTop={1}>
           {foldButton(ui.Button, model)}
         </Box>
       ) : null}
-      {editorOf(ui, model)}
       {model.theirs}
     </Box>
   )

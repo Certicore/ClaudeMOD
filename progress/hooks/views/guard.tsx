@@ -5,7 +5,7 @@ import { alertWaveCells, limitDialCells } from '../meter'
 import { AMBER, AMBER_DIM, hexOf, INDIGO, LAVENDER, MUTED } from '../palette'
 import { encodeRows } from '../raster'
 import { quotaColorOf, remainingTextOf, resetTextOf, type Quota } from '../usage'
-import { alertRingOf, alertWaveOf, DIAL_HEIGHT, limitDialOf } from './svg-alert'
+import { alertRingOf, alertWaveOf, confirmMarkOf, DIAL_HEIGHT, limitDialOf } from './svg-alert'
 
 type Box = ElementConstructor<BoxProps>
 type Text = ElementConstructor<TextProps>
@@ -19,18 +19,23 @@ export type GuardView = {
   /** The limit the picker shows (null while the window has none), and the one its bar slides from after a move. */
   draft: number | null
   draftFrom: number | null
+  /** The picker just took the quota row's place: its dial opens out. */
+  isOpening: boolean
+  /** The window whose ✓ was just pressed: the quota row comes back with it lit. */
+  justSet: string | null
   /** The dial's drag region runs on this surface; where it does not, the track takes clicks instead. */
   isDragReady: boolean
   /** Sets the limit where the track was clicked, and slides the bar there. */
   onPick: (limit: number) => void
   pause: Pause | null
-  /** Opens a window's picker, or closes it when it is the open one. */
+  /** Opens a window's picker in the quota row's place, or leaves it unchanged when it is the open one. */
   onEdit: (kind: string) => void
-  /** Moves the picker's knob by steps of 5%. */
+  /** Moves the picker's bar by steps of 5%. */
   onNudge: (delta: number) => void
-  /** Sets the open picker's limit. */
+  /** The ✓: keeps the limit the picker shows and brings the quota row back. */
   onConfirm: () => void
-  onSetLimit: (kind: string, limit: number | null) => void
+  /** Clears the picker's limit; the ✓ then lifts it. */
+  onClear: () => void
   onSave: () => void
   onResume: () => void
 }
@@ -290,22 +295,26 @@ function dragLayerOf(ui: { Box: Box; Client: ElementConstructor<ClientProps> }, 
   )
 }
 
+/** The ✓ disc's size, in CSS pixels. */
+const CONFIRM_PX = 24
+
 /**
- * A window's limit picker on the desktop, one row: the window, the dial
- * and the click layer over it (hover to read a percent, click to set the
- * limit there, click again to move it), `Remove` once a limit is set, and
- * a close mark. The limit is saved at the click: no confirm step.
+ * A window's limit picker on the desktop, in the quota row's place: the
+ * window, the dial and the click layer over it (hover to read a percent,
+ * click to set the limit there, click again to move it), `Remove` while a
+ * limit shows, and the ✓ that keeps it and brings the two windows back.
+ * Opening, the dial grows out of its middle and the ✓ pops in after it.
  */
 export function desktopLimitPicker(
   ui: { Box: Box; Text: Text; Button: Button; Svg: ElementConstructor<SvgProps> },
   guard: GuardView,
   quota: Quota,
+  marginTop: number,
 ): RenderElement {
   const { Box, Text, Button, Svg } = ui
-  const current = guard.limits[quota.kind]
 
   return (
-    <Box key={`editor:${quota.kind}`} flexDirection="row" gap={1} alignItems="center" marginTop={1}>
+    <Box key={`editor:${quota.kind}`} flexDirection="row" gap={1} alignItems="center" marginTop={marginTop}>
       <Text bold color={hexOf(AMBER)}>
         {`⚑ ${quota.label}`}
       </Text>
@@ -318,6 +327,7 @@ export function desktopLimitPicker(
             limit: guard.draft,
             from: guard.draftFrom,
             width: DIAL_PX,
+            isOpening: guard.isOpening,
           })}
           alt={guard.draft === null ? 'click the bar to set a limit' : `pause at ${guard.draft}% left`}
           width={DIAL_PX}
@@ -326,14 +336,19 @@ export function desktopLimitPicker(
         {clickLayerOf(ui, guard, quota)}
       </Box>
       {hoverReadoutOf(ui, quota)}
-      {current === undefined ? null : (
-        <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={() => guard.onSetLimit(quota.kind, null)}>
+      {guard.draft === null ? null : (
+        <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={guard.onClear}>
           Remove
         </Button>
       )}
-      <Button key={`editor-close:${quota.kind}`} plain dimColor autoFocus onPress={() => guard.onEdit(quota.kind)}>
-        ✕
-      </Button>
+      <Box key={`confirm:${quota.kind}`} position="relative" flexShrink={0}>
+        <Svg source={confirmMarkOf(CONFIRM_PX, guard.isOpening)} alt="Validate the limit" width={CONFIRM_PX} height={CONFIRM_PX} />
+        <Box position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="center" alignItems="center">
+          <Button key={`limit-confirm:${quota.kind}`} plain autoFocus onPress={guard.onConfirm}>
+            {BLANK_LABEL}
+          </Button>
+        </Box>
+      </Box>
     </Box>
   )
 }
@@ -342,9 +357,9 @@ export function desktopLimitPicker(
 const DIAL_CELLS = 32
 
 /**
- * A window's limit picker on the terminal: `◀`, a cell dial with its amber
- * zone and knob (the mouse drags it where the terminal reports one), `▶`,
- * the value, `Set`.
+ * A window's limit picker on the terminal, in the quota row's place: `◀`,
+ * a cell dial with its amber zone and knob (the mouse drags it where the
+ * terminal reports one), `▶`, the value, `Remove`, and the ✓ that keeps it.
  */
 export function terminalLimitPicker(
   ui: { Box: Box; Text: Text; Button: Button; Raster: ElementConstructor<RasterProps>; Client: ElementConstructor<ClientProps> },
@@ -352,7 +367,6 @@ export function terminalLimitPicker(
   quota: Quota,
 ): RenderElement {
   const { Box, Text, Button, Raster } = ui
-  const current = guard.limits[quota.kind]
 
   return (
     <Box key={`editor:${quota.kind}`} flexDirection="row" gap={1}>
@@ -374,17 +388,14 @@ export function terminalLimitPicker(
       <Button key={`nudge:${quota.kind}:up`} plain hotkey="l" onPress={() => guard.onNudge(1)}>
         ▶
       </Button>
-      <Text color={hexOf(AMBER)}>{`pause at ${guard.draft ?? LIMIT_START}%`}</Text>
-      <Button key={`limit-set:${quota.kind}`} variant="primary" hotkey="s" autoFocus onPress={guard.onConfirm}>
-        Set
-      </Button>
-      {current === undefined ? null : (
-        <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={() => guard.onSetLimit(quota.kind, null)}>
+      <Text color={hexOf(AMBER)}>{guard.draft === null ? 'no limit' : `pause at ${guard.draft}%`}</Text>
+      {guard.draft === null ? null : (
+        <Button key={`limit-off:${quota.kind}`} plain dimColor onPress={guard.onClear}>
           Remove
         </Button>
       )}
-      <Button key={`editor-close:${quota.kind}`} plain dimColor onPress={() => guard.onEdit(quota.kind)}>
-        ✕
+      <Button key={`limit-confirm:${quota.kind}`} variant="primary" hotkey="s" autoFocus onPress={guard.onConfirm}>
+        ✓
       </Button>
     </Box>
   )

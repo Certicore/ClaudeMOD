@@ -282,8 +282,16 @@ function escapeXml(text: string): string {
  * A quota's bar on the desktop: a slim capsule whose LEDs fill what is left
  * of the window, brightest at its end, in the quota's color, calmly
  * twinkling; the empty part a groove.
+ *
+ * As the quota row comes back after a limit picker, each capsule grows out
+ * of its middle; the one whose limit was just validated then catches a
+ * gleam, and its notch drops in with a ring of amber light.
  */
-export function quotaBarOf(quota: { kind: string; remaining: number; color: Rgb; limit?: number }, width: number, height: number): string {
+export function quotaBarOf(
+  quota: { kind: string; remaining: number; color: Rgb; limit?: number; isReturning?: boolean; isConfirmed?: boolean },
+  width: number,
+  height: number,
+): string {
   const key = `q${quota.kind.replace(/[^a-z0-9]/gi, '')}`
   const seed = seedOf(quota.kind)
   const fill = Math.round((Math.max(0, Math.min(100, quota.remaining)) / 100) * width)
@@ -318,11 +326,28 @@ export function quotaBarOf(quota: { kind: string; remaining: number; color: Rgb;
     leds += `<path d="${d}" fill="url(#p${key})" fill-opacity="${[0.45, 0.72, 1][Number(level)] ?? 1}"${phase === '' ? '' : ` class="${phase}"`}/>`
   }
 
+  const returning = quota.isReturning === true
+  const lit = returning && quota.isConfirmed === true
+  const ease = 'calcMode="spline" keyTimes="0;1" keySplines="0.16 1 0.3 1"'
+  const grow = returning
+    ? `<animate attributeName="x" from="${width / 2 - 4}" to="0" dur="0.45s" fill="freeze" ${ease}/>` +
+      `<animate attributeName="width" from="8" to="${width}" dur="0.45s" fill="freeze" ${ease}/>`
+    : ''
+  const gleam = lit
+    ? `<rect x="-24" y="0" width="24" height="${height}" fill="url(#g${key})" opacity="0">` +
+      `<animate attributeName="x" from="-24" to="${width}" begin="0.35s" dur="0.6s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.6 0 0.4 1"/>` +
+      `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" begin="0.35s" dur="0.6s" fill="freeze"/>` +
+      `</rect>`
+    : ''
+
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="visible">` +
     `<style>@keyframes tz{0%,100%{opacity:.4}50%{opacity:1}}.d{animation:tz 3.4s ease-in-out infinite}.e{animation:tz 2.6s ease-in-out 1.1s infinite}</style>` +
     `<defs>` +
-    `<clipPath id="k${key}"><rect x="0" y="0" width="${width}" height="${height}" rx="${height / 2}"/></clipPath>` +
+    `<clipPath id="k${key}"><rect x="${returning ? width / 2 - 4 : 0}" y="0" width="${returning ? 8 : width}" height="${height}" rx="${height / 2}">${grow}</rect></clipPath>` +
+    (lit
+      ? `<linearGradient id="g${key}" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.65" stop-color="#fff" stop-opacity="0.7"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+      : '') +
     `<linearGradient id="p${key}" gradientUnits="userSpaceOnUse" x1="0" x2="${Math.max(fill, 1)}" y1="0" y2="0">` +
     `<stop offset="0" stop-color="${hexOf(mix(quota.color, 0x1c1c22, 0.55))}"/><stop offset="1" stop-color="${hexOf(mix(quota.color, WHITE, 0.25))}"/>` +
     `</linearGradient>` +
@@ -338,23 +363,40 @@ export function quotaBarOf(quota: { kind: string; remaining: number; color: Rgb;
     `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#w${key})"/>` +
     (fill > 0 ? `<rect x="0" y="0" width="${fill}" height="${height}" rx="${height / 2}" fill="url(#f${key})"/>` : '') +
     leds +
+    gleam +
     `</g>` +
-    limitMarkOf(quota.limit, width, height) +
+    limitMarkOf(quota.limit, width, height, lit) +
     `</svg>`
   )
 }
 
 /** Where a quota's limit sits on its capsule: a bright notch with a soft amber glow. */
-function limitMarkOf(limit: number | undefined, width: number, height: number): string {
+function limitMarkOf(limit: number | undefined, width: number, height: number, isLanding = false): string {
   if (limit === undefined) {
     return ''
   }
 
   const x = Math.max(1.5, Math.min(width - 1.5, (limit / 100) * width)).toFixed(1)
-
-  return (
+  const mark =
     `<line x1="${x}" x2="${x}" y1="0" y2="${height}" stroke="${hexOf(AMBER)}" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round"/>` +
     `<line x1="${x}" x2="${x}" y1="0.5" y2="${height - 0.5}" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>`
+
+  if (!isLanding) {
+    return mark
+  }
+
+  // Just validated: the notch drops in with a bounce, and a ring of amber light spreads from it.
+  return (
+    `<g opacity="0">` +
+    `<animateTransform attributeName="transform" type="translate" values="0 -12;0 1.5;0 -0.5;0 0" keyTimes="0;0.55;0.8;1" begin="0.45s" dur="0.5s" fill="freeze"/>` +
+    `<animate attributeName="opacity" values="0;1" begin="0.45s" dur="0.15s" fill="freeze"/>` +
+    mark +
+    `</g>` +
+    `<ellipse cx="${x}" cy="${height / 2}" rx="1" ry="1" fill="none" stroke="${hexOf(AMBER)}" stroke-width="1.4" opacity="0">` +
+    `<animate attributeName="rx" values="1;16" begin="0.72s" dur="0.55s" fill="freeze"/>` +
+    `<animate attributeName="ry" values="1;9" begin="0.72s" dur="0.55s" fill="freeze"/>` +
+    `<animate attributeName="opacity" values="0;0.95;0" keyTimes="0;0.15;1" begin="0.72s" dur="0.55s" fill="freeze"/>` +
+    `</ellipse>`
   )
 }
 
