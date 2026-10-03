@@ -598,6 +598,57 @@ describe('register', () => {
     }
   })
 
+  test('▾ folds the plans into one line over the quota row, ▸ opens them again; the folder remembers', async ($, on) => {
+    const { saved, blits, clock } = world(on, LIMITS)
+
+    await $.session.start(SESSION)
+    await report($, clock, { plan: 'Docs', step: 3, total: 3 })
+    await report($, clock, { plan: 'Tests', step: 1, total: 4 })
+    await clock.advance(SETTLED_MS)
+
+    const ui = await $.ui.mount({ ...band(), surface: 'desktop' })
+
+    expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'the toggle starts the quota row').toContain('band-toggle')
+
+    await ui.press({ key: 'band-toggle' })
+
+    const summary = JSON.stringify(await ui.find({ key: 'summary' }))
+
+    expect(await ui.find({ key: 'row:docs' }), 'the rows give way').toBeUndefined()
+    expect(summary, 'what runs and what is done').toContain('1 running · 1 done')
+    expect(summary, 'the overall percent').toContain(' 63%')
+    expect(summary, 'the mini bars assemble').toContain('animateTransform')
+    expect((await ui.find({ key: 'band-toggle' }))?.text).toBe('▸ 2 tasks')
+    expect(await ui.find({ key: 'quota:five_hour' }), 'the quota row stays under it').toBeDefined()
+    expect(saved.get(`view:${folderKeyOf('/work')}`)).toEqual({ isFolded: true })
+
+    await clock.advance(SETTLED_MS)
+
+    expect(JSON.stringify(await ui.find({ key: 'summary' })), 'at rest once assembled').not.toContain('animateTransform')
+
+    await ui.press({ key: 'band-toggle' })
+
+    const row = JSON.stringify(await ui.find({ key: 'row:tests' }))
+
+    expect(row, 'the rows unfold behind an edge of light, one after another').toContain('begin=\\"0.07s\\"')
+    expect(await ui.find({ key: 'summary' })).toBeUndefined()
+
+    await ui.press({ key: 'band-toggle' })
+    await ui.unmount()
+
+    const terminal = await $.ui.mount({ ...band(), surface: 'terminal' })
+    const before = blits.length
+
+    expect(await terminal.find({ key: 'meters' }), 'folded on the terminal too').toBeUndefined()
+    expect((await rasterText(await terminal.find({ key: 'folded' })))[0], 'one mini meter per plan').toMatch(/^▐[⠀-⣿]+ [⠀-⣿⠤]+ *▌ +63%$/)
+
+    await clock.advance(400)
+
+    expect(blits.slice(before).some(blit => blit.key === 'meters'), 'no repaint of rows not drawn').toBe(false)
+
+    await terminal.unmount()
+  })
+
   test('an accented name keys the plan by its letters', async ($, on) => {
     const { saved, clock } = world(on)
 

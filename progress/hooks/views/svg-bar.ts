@@ -29,6 +29,8 @@ export type SvgBar = {
   padY?: number
   /** The ✕ was pressed: the bar comes apart, LED by LED, and the chip bursts. */
   isDissolving?: boolean
+  /** The list just unfolded: the bar sweeps in from the left after this many seconds; absent at rest. */
+  enterDelay?: number
 }
 
 /** How long a dissolving bar takes to come apart, its last LED's delay included. */
@@ -98,6 +100,7 @@ export function svgBarOf(bar: SvgBar): string {
 
   const padY = Math.max(0, Math.round(bar.padY ?? 0))
   const isDissolving = bar.isDissolving === true
+  const enter = bar.enterDelay === undefined ? null : unfoldOf(`u${key}`, w, h, padY, bar.enterDelay)
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h + padY * 2}" viewBox="0 ${-padY} ${w} ${h + padY * 2}">` +
@@ -143,7 +146,9 @@ export function svgBarOf(bar: SvgBar): string {
     `<stop offset="0" stop-color="${hexOf(mix(tone.chip, WHITE, 0.22))}"/><stop offset="1" stop-color="${hexOf(tone.chip)}"/>` +
     `</linearGradient>` +
     `<filter id="g${key}" x="-60%" y="-120%" width="220%" height="340%"><feGaussianBlur stdDeviation="7"/></filter>` +
+    (enter?.defs ?? '') +
     `</defs>` +
+    (enter?.open ?? '') +
     `<g clip-path="url(#k${key})"${isDissolving ? ' class="fo"' : ''}>` +
     `<rect x="0" y="0" width="${w}" height="${h}" fill="#8e8e96" fill-opacity="0.17"/>` +
     // The wash needs no clip: its gradient fades to nothing past the head, and moves with it.
@@ -172,8 +177,32 @@ export function svgBarOf(bar: SvgBar): string {
     `</text>` +
     (isDissolving ? `</g>` : '') +
     `</g>` +
+    (enter?.close ?? '') +
     `</svg>`
   )
+}
+
+/**
+ * A bar's unfold, as the list opens: the drawing is revealed left to right
+ * behind a travelling edge of light that flares as it goes and fades out at
+ * the end, each row a beat after the one above.
+ */
+function unfoldOf(id: string, w: number, h: number, padY: number, delay: number): { defs: string; open: string; close: string } {
+  const begin = `${delay.toFixed(2)}s`
+  const spline = `begin="${begin}" dur="0.62s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.65 0 0.25 1"`
+
+  return {
+    defs:
+      `<clipPath id="${id}"><rect x="-4" y="${-padY}" width="0" height="${h + padY * 2}"><animate attributeName="width" from="0" to="${w + 8}" ${spline}/></rect></clipPath>` +
+      `<linearGradient id="${id}e" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.7" stop-color="#fff" stop-opacity="0.55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`,
+    open: `<g clip-path="url(#${id})">`,
+    close:
+      `</g>` +
+      `<rect x="-40" y="0" width="40" height="${h}" rx="${h / 2}" fill="url(#${id}e)" opacity="0">` +
+      `<animate attributeName="x" from="-40" to="${w - 4}" ${spline}/>` +
+      `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.8;1" begin="${begin}" dur="0.7s" fill="freeze"/>` +
+      `</rect>`,
+  }
 }
 
 /**
@@ -477,6 +506,110 @@ export function burstLayerOf(burst: Burst): string {
     `</ellipse>` +
     trails +
     glitter +
+    `</svg>`
+  )
+}
+
+/** One plan as the folded list's capsule draws it. */
+export type SummarySegment = {
+  id: string
+  /** Its share, 0 to 1. */
+  share: number
+  isDone: boolean
+  /** Claude works on it now: its LEDs twinkle faster and a light runs over it. */
+  isLive: boolean
+}
+
+/**
+ * The folded list: one capsule holding a mini LED bar per plan, side by
+ * side, each filled to its share (emerald done, lavender running) and
+ * glowing at its head. Just folded, the segments assemble one by one, each
+ * sliding in from the right and settling with a flash, then a sweep of
+ * light runs across the whole capsule.
+ */
+export function summaryBarOf(segments: readonly SummarySegment[], width: number, height: number, padY: number, isAssembling: boolean): string {
+  const w = width
+  const h = height
+  const gap = 4
+  const inset = 3
+  const n = Math.max(1, segments.length)
+  const segW = Math.max(6, (w - inset * 2 - gap * (n - 1)) / n)
+  const segH = h - inset * 2
+  let body = ''
+  let defs = ''
+
+  segments.forEach((segment, index) => {
+    const x0 = inset + index * (segW + gap)
+    const key = `s${index}`
+    const tone = segment.isDone ? FINISHED : RUNNING
+    const fill = Math.max(segment.share > 0 ? 4 : 0, segment.share * segW)
+    const seed = seedOf(segment.id)
+    const rows = Math.max(1, Math.floor((segH - 2) / PITCH))
+    const top = Math.round((segH - rows * PITCH + (PITCH - LED)) / 2)
+    let leds = ''
+
+    for (let x = 2, column = 0; x + LED <= fill - 1; x += PITCH, column += 1) {
+      const t = Math.min(1, x / Math.max(1, fill))
+
+      for (let row = 0; row < rows; row += 1) {
+        if (noise(seed, column * 31 + row, 1) > 0.42 + 0.55 * t) {
+          continue
+        }
+
+        const phase = (segment.isLive ? ['', 'a', 'b'] : ['', 'd', 'e'])[Math.floor(noise(seed, column * 31 + row, 3) * 3)] ?? ''
+        const shade = hexOf(mix(tone.dim, tone.bright, 0.2 + 0.8 * t * noise(seed, column * 31 + row, 2) ** 0.6))
+
+        leds += `<rect x="${x}" y="${top + row * PITCH}" width="${LED}" height="${LED}" fill="${shade}"${phase === '' ? '' : ` class="${phase}"`}/>`
+      }
+    }
+
+    const accent = hexOf(segment.isDone ? EMERALD : tone.chip)
+    const begin = (0.05 + index * 0.08).toFixed(2)
+
+    defs +=
+      `<clipPath id="c${key}"><rect x="0" y="0" width="${segW.toFixed(1)}" height="${segH}" rx="${segH / 2}"/></clipPath>` +
+      `<linearGradient id="w${key}" x1="0" x2="1"><stop offset="0" stop-color="${accent}" stop-opacity="0"/><stop offset="1" stop-color="${accent}" stop-opacity="0.38"/></linearGradient>`
+    body +=
+      `<g transform="translate(${x0.toFixed(1)} ${inset})"${isAssembling ? ' opacity="0"' : ''}>` +
+      (isAssembling
+        ? `<animateTransform attributeName="transform" type="translate" from="${(x0 + 26).toFixed(1)} ${inset}" to="${x0.toFixed(1)} ${inset}" begin="${begin}s" dur="0.5s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.16 1 0.3 1"/>` +
+          `<animate attributeName="opacity" from="0" to="1" begin="${begin}s" dur="0.3s" fill="freeze"/>`
+        : '') +
+      `<g clip-path="url(#c${key})">` +
+      `<rect x="0" y="0" width="${segW.toFixed(1)}" height="${segH}" fill="#8e8e96" fill-opacity="0.16"/>` +
+      `<rect x="0" y="0" width="${fill.toFixed(1)}" height="${segH}" fill="url(#w${key})"/>` +
+      leds +
+      (fill > 3 && !segment.isDone ? `<rect x="${(fill - 2).toFixed(1)}" y="0" width="2" height="${segH}" fill="#fff" fill-opacity="0.75"/>` : '') +
+      (segment.isLive && !segment.isDone
+        ? `<rect x="-30" y="0" width="30" height="${segH}" fill="url(#sw)"><animate attributeName="x" from="-30" to="${segW.toFixed(1)}" dur="1.8s" repeatCount="indefinite"/></rect>`
+        : '') +
+      (isAssembling
+        ? `<rect x="0" y="0" width="${segW.toFixed(1)}" height="${segH}" fill="#fff" opacity="0"><animate attributeName="opacity" values="0;0.55;0" keyTimes="0;0.25;1" begin="${(Number(begin) + 0.28).toFixed(2)}s" dur="0.45s" fill="freeze"/></rect>`
+        : '') +
+      `</g>` +
+      `</g>`
+  })
+
+  const sweepBegin = (0.05 + n * 0.08 + 0.25).toFixed(2)
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h + padY * 2}" viewBox="0 ${-padY} ${w} ${h + padY * 2}">` +
+    `<style>@keyframes tw{0%,100%{opacity:.15}50%{opacity:1}}@keyframes tz{0%,100%{opacity:.35}50%{opacity:1}}` +
+    `.a{animation:tw 1.4s ease-in-out infinite}.b{animation:tw 2.1s ease-in-out .7s infinite}.d{animation:tz 3.1s ease-in-out infinite}.e{animation:tz 4.3s ease-in-out 1.4s infinite}</style>` +
+    `<defs>` +
+    defs +
+    `<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+    `<linearGradient id="sv" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.6" stop-color="#fff" stop-opacity="0.5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+    `<clipPath id="sk"><rect x="0" y="0" width="${w}" height="${h}" rx="${h / 2}"/></clipPath>` +
+    `</defs>` +
+    `<rect x="0" y="0" width="${w}" height="${h}" rx="${h / 2}" fill="#8e8e96" fill-opacity="0.1"/>` +
+    body +
+    (isAssembling
+      ? `<g clip-path="url(#sk)"><rect x="-70" y="0" width="70" height="${h}" fill="url(#sv)" opacity="0">` +
+        `<animate attributeName="x" from="-70" to="${w}" begin="${sweepBegin}s" dur="0.75s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.65 0 0.35 1"/>` +
+        `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" begin="${sweepBegin}s" dur="0.75s" fill="freeze"/>` +
+        `</rect></g>`
+      : '') +
     `</svg>`
   )
 }

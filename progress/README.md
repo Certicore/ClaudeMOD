@@ -63,6 +63,10 @@ Les plans de la première version n'avaient pas de dossier. Au chargement, ceux 
 
 *Capturé dans une vraie session `claude --plugin-dir ./progress` (Claude Code 2.1.287), Claude appelant `report_progress` lui-même.*
 
+## Replier la liste
+
+Le bouton `▾`, au début de la ligne des quotas, replie tous les plans en une seule ligne : « 2 running · 1 done », une capsule qui contient une mini-barre de LED par plan (émeraude pour les plans terminés, lavande pour ceux en cours), puis le pourcentage global. Au repli, les mini-barres arrivent une à une depuis la droite et se posent avec un flash, puis un trait de lumière balaie toute la capsule. Le bouton devient `▸ 3 tasks`. Un clic rouvre la liste : chaque barre se dévoile de gauche à droite derrière un bord lumineux, avec un léger décalage d'une ligne à l'autre. La ligne des quotas reste en dessous. Le choix est retenu par dossier, dans `view:<dossier>`. Dans le terminal, la ligne repliée est un seul `Raster` qui contient les mini-jauges braille, et la boucle d'animation ne repeint plus les lignes qui ne sont pas affichées.
+
 ## Le `✕` qui dissout
 
 Le `✕` ne fait pas disparaître la ligne d'un coup. Sur Desktop, chaque LED se détache, s'envole à son propre angle en s'illuminant de blanc puis s'éteint, en partant de la pastille. La pastille gonfle puis éclate. L'éclat est dessiné sur une couche à lui, posée au premier plan et plus grande que la ligne, pour que rien ne le coupe. Il enchaîne un flash radial, une onde de choc blanche et vive suivie d'une onde colorée et diffuse, une étoile de traînées d'étincelles et des paillettes qui retombent. La piste s'efface ensuite. Dans le terminal, les cellules se changent en étincelles `✦` puis `·` avant de s'éteindre, et la pastille s'effrite. Le nom du plan se raye pendant ce temps, avec le son `fx/dissolve.wav` : un souffle qui retombe et quelques reflets cristallins. Après un peu plus d'une seconde, le plan quitte le bandeau et le store.

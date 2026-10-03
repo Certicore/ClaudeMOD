@@ -11,6 +11,7 @@ import type {
 } from 'claude-code'
 
 import {
+  foldedCells,
   glyphCell,
   meterRow,
   meterWidthOf,
@@ -34,7 +35,7 @@ import {
   terminalLimitPicker,
   type GuardView,
 } from './guard'
-import { burstLayerOf, chipCentreOf, chipGeometryOf, quotaBarOf, svgBarOf } from './svg-bar'
+import { burstLayerOf, chipCentreOf, chipGeometryOf, quotaBarOf, summaryBarOf, svgBarOf } from './svg-bar'
 
 type Box = ElementConstructor<BoxProps>
 type Text = ElementConstructor<TextProps>
@@ -79,6 +80,8 @@ export type BandModel = {
   quotas: readonly Quota[]
   /** The usage guard: the limits, their editor, the pause and its alert. */
   guard: GuardView
+  /** Whether the plans are folded into one line, whether the fold just changed (its animation plays), and the toggle. */
+  fold: { isFolded: boolean; isAnimating: boolean; onToggle: () => void }
 }
 
 /** How the terminal band shares its width. */
@@ -161,6 +164,7 @@ export function terminalBandView(ui: TerminalKit, model: BandModel, layout: Term
       {pause === null ? null : terminalAlertCard(ui, model.guard, pause, context.now, alertWaveWidthOf(model.columns))}
       {frames.length > 0 ? (
         <Box flexDirection="row" gap={1}>
+          {foldButton(Button, model)}
           <Text bold color={hexOf(LAVENDER)}>
             ◆
           </Text>
@@ -169,7 +173,18 @@ export function terminalBandView(ui: TerminalKit, model: BandModel, layout: Term
           <Text dimColor>{summary}</Text>
         </Box>
       ) : null}
-      {frames.length > 0 ? (
+      {frames.length > 0 && model.fold.isFolded ? (
+        <Box key="summary" flexDirection="row" gap={1}>
+          <Text color={hexOf(LAVENDER)}>◆</Text>
+          <Box width={layout.name} flexShrink={0}>
+            <Text bold wrap="truncate-end">
+              {tasksWordOf(frames)}
+            </Text>
+          </Box>
+          <Raster key="folded" columns={layout.meter} rows={1} cells={encodeRows([foldedCells(frames, layout.bar, layout.meter)])} />
+        </Box>
+      ) : null}
+      {frames.length > 0 && !model.fold.isFolded ? (
       <Box flexDirection="row" gap={1}>
         <Raster key={GLYPHS_KEY} columns={1} rows={frames.length} cells={glyphsCellsOf(frames, context)} />
         <Box flexDirection="column" width={layout.name} flexShrink={0}>
@@ -264,6 +279,7 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
 
   return (
     <Box key="quotas" flexDirection="row" gap={1} alignItems="center" marginTop={model.frames.length > 0 ? 1 : 0}>
+      {model.frames.length > 0 ? foldButton(ui.Button, model) : null}
       <Text color={hexOf(MUTED)}>◷</Text>
       {model.quotas.map((quota, index) => {
         const color = quotaColorOf(quota.remaining)
@@ -315,7 +331,8 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
   return (
     <Box flexDirection="column" alignItems="center" paddingX={PADDING}>
       {pause === null ? null : desktopAlertCard(ui, model.guard, pause, context.now, clamp(barPx, 160, 520))}
-      {frames.map(frame => {
+      {frames.length > 0 && model.fold.isFolded ? desktopSummaryRow(ui, model, name, barPx) : null}
+      {(model.fold.isFolded ? [] : frames).map((frame, index) => {
         const { plan } = frame
         const done = isDone(plan)
         const target = done ? 1 : plan.step / plan.total
@@ -340,6 +357,7 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
           isPaused,
           padY: DESKTOP_BAR_GAP_PX,
           isDissolving: isGoing(frame),
+          ...(model.fold.isAnimating ? { enterDelay: index * 0.07 } : {}),
         })
 
         return (
@@ -368,7 +386,11 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
           </Box>
         )
       })}
-      {model.quotas.length > 0 ? desktopQuotaRow(ui, model) : null}
+      {model.quotas.length > 0 ? desktopQuotaRow(ui, model) : frames.length > 0 ? (
+        <Box key="quotas" flexDirection="row" marginTop={1}>
+          {foldButton(ui.Button, model)}
+        </Box>
+      ) : null}
       {editorOf(ui, model)}
       {model.theirs}
     </Box>
@@ -462,6 +484,61 @@ function burstOverlayOf(ui: DesktopKit, id: string, barPx: number, label: string
         width={barPx + BURST_SPILL_PX * 2}
         height={BURST_PX}
       />
+    </Box>
+  )
+}
+
+/** `3 tasks`, `1 task`: what the folded line is named. */
+function tasksWordOf(frames: readonly PlanFrame[]): string {
+  return frames.length === 1 ? '1 task' : `${frames.length} tasks`
+}
+
+/** The fold toggle: `▾` folds the plans into one line, `▸` opens them again; the count rides along while folded. */
+function foldButton(Button: Button, model: BandModel): RenderElement {
+  const { isFolded } = model.fold
+
+  return (
+    <Button key="band-toggle" plain dimColor hover={{ scope: 'band-toggle', color: hexOf(LAVENDER) }} onPress={model.fold.onToggle}>
+      {isFolded ? `▸ ${tasksWordOf(model.frames)}` : '▾'}
+    </Button>
+  )
+}
+
+/**
+ * The folded list on the desktop, one row in the bars' columns: what runs
+ * and what is done, the capsule of mini bars (assembling as the list
+ * folds), and the overall percent.
+ */
+function desktopSummaryRow(ui: DesktopKit, model: BandModel, name: number, barPx: number): RenderElement {
+  const { Box, Text, Svg } = ui
+  const { frames, context } = model
+  const done = frames.filter(frame => isDone(frame.plan)).length
+  const running = frames.length - done
+  const overall = frames.reduce((sum, frame) => sum + (isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total), 0) / frames.length
+  const words = running === 0 ? `${done} done` : done === 0 ? `${running} running` : `${running} running · ${done} done`
+  const segments = frames.map(frame => ({
+    id: frame.plan.id,
+    share: isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total,
+    isDone: isDone(frame.plan),
+    isLive: context.isWorking && frame.isActive,
+  }))
+
+  return (
+    <Box key="summary" flexDirection="row" gap={1} alignItems="center">
+      <Text color={hexOf(running === 0 ? EMERALD : LAVENDER)}>◆</Text>
+      <Box width={name} flexShrink={0}>
+        <Text wrap="truncate-end">{words}</Text>
+      </Box>
+      <Svg
+        source={summaryBarOf(segments, barPx, DESKTOP_BAR_PX, DESKTOP_BAR_GAP_PX, model.fold.isAnimating)}
+        alt={`${words}, ${shownPercent(overall)}% overall`}
+        width={barPx}
+        height={DESKTOP_BAR_PX + DESKTOP_BAR_GAP_PX * 2}
+      />
+      <Box width={5} flexShrink={0}>
+        <Text color={hexOf(running === 0 ? EMERALD : MUTED)}>{`${shownPercent(overall)}%`.padStart(4)}</Text>
+      </Box>
+      <Text> </Text>
     </Box>
   )
 }

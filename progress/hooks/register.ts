@@ -182,6 +182,11 @@ let isWorking = false
 let runningTurn: string | null = null
 /** The limits the person set, per window, in percent left. */
 let limits: Limits = {}
+/** Whether this folder's plans are folded into one line, and when that last changed (its animation plays a moment). */
+let isFolded = false
+let foldedAt = Number.NEGATIVE_INFINITY
+/** How long a fold or an unfold animates; a redraw after it draws the band at rest. */
+const FOLD_MS = 1600
 /** The window whose limit picker is open. */
 let editing: string | null = null
 /** The limit the picker shows, the one its knob last slid from, and when. */
@@ -483,6 +488,13 @@ function drawBand(
     theirs,
     quotas: shownQuotas(),
     guard: guardViewOf($, now, e.surface),
+    fold: {
+      isFolded,
+      isAnimating: now - foldedAt < FOLD_MS,
+      onToggle: () => {
+        void toggleFold($)
+      },
+    },
     onRemove: id => {
       void dissolvePlan($, id)
     },
@@ -493,10 +505,12 @@ function drawBand(
     const layout = terminalLayoutOf(columns, frames)
     const alertCells = pause === null ? null : alertWaveWidthOf(columns)
 
+    const shownIds = isFolded ? [] : frames.map(frame => frame.plan.id)
+
     mounted =
-      frames.length === 0 && alertCells === null
+      shownIds.length === 0 && alertCells === null
         ? null
-        : { requestId: e.requestId, layout, ids: frames.map(frame => frame.plan.id), alertCells }
+        : { requestId: e.requestId, layout, ids: shownIds, alertCells }
     blitted.clear()
 
     if (isAnimating()) {
@@ -612,13 +626,10 @@ async function paint($: EngineInterface, target: Mounted, now: number): Promise<
   const frames = framesAt(now)
   const ids = frames.map(row => row.plan.id)
 
-  if (ids.join('\n') !== target.ids.join('\n')) {
-    return
-  }
-
   const context: FrameContext = { now, isWorking, isPaused: pause !== null }
+  const hasPlanRasters = target.ids.length > 0 && ids.join('\n') === target.ids.join('\n')
   const repaints: [string, string, number, number][] =
-    frames.length === 0
+    !hasPlanRasters
       ? []
       : [
           [GLYPHS_KEY, glyphsCellsOf(frames, context), 1, frames.length],
@@ -735,8 +746,38 @@ async function guardKeyOf($: EngineInterface): Promise<string> {
   return `guard:${await folderOf($)}`
 }
 
-/** Reads the limits and this folder's pause from the store. */
+/** The store key of this folder's view: whether its plans are folded. */
+async function viewKeyOf($: EngineInterface): Promise<string> {
+  return `view:${await folderOf($)}`
+}
+
+/** Folds the plans into one line, or opens them again; remembered for the folder, animated once. */
+async function toggleFold($: EngineInterface): Promise<void> {
+  isFolded = !isFolded
+  foldedAt = await $.clock.now()
+  $.ui.invalidate('ui.render')
+  // A redraw once the animation is over, so later redraws draw the band at rest.
+  $.clock.after(FOLD_MS + 50, () => {
+    $.ui.invalidate('ui.render')
+  })
+
+  try {
+    await $.store.set(await viewKeyOf($), { isFolded })
+  } catch {
+    // The fold holds for this session.
+  }
+}
+
+/** Reads the limits and this folder's pause and view from the store. */
 async function loadGuard($: EngineInterface): Promise<void> {
+  try {
+    const view = (await $.store.get(await viewKeyOf($))) as { isFolded?: unknown } | undefined
+
+    isFolded = view?.isFolded === true
+  } catch {
+    // An unreadable store: the plans show open.
+  }
+
   try {
     limits = limitsOf(await $.store.get(LIMITS_KEY))
 
