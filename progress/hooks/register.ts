@@ -186,8 +186,8 @@ let editing: string | null = null
 let draft = LIMIT_START
 let draftFrom: number | null = null
 let draftMovedAt = 0
-/** Whether the dial's drag region has said it runs on this surface: until then the picker keeps its arrows. */
-let isDragReady = false
+/** The surfaces whose dial drag region has said it runs; elsewhere the dial takes clicks instead. */
+const dragReady = new Set<string>()
 /** How long a nudge's slide plays: a redraw after it draws the knob at rest. */
 const NUDGE_MS = 450
 /** The pause at a limit, while one holds the work. */
@@ -297,9 +297,11 @@ export function register(on: On, options: PluginOptions): void {
   on('ui.message', { module: /dial-drag/ }, ($, e) => {
     const data = e.data as { limit?: unknown; isFinal?: unknown; isReady?: unknown } | null
 
-    if (data?.isReady === true && !isDragReady) {
-      isDragReady = true
-      $.ui.invalidate('ui.render')
+    if (data?.isReady === true) {
+      if (!dragReady.has(e.surface)) {
+        dragReady.add(e.surface)
+        $.ui.invalidate('ui.render')
+      }
 
       return {}
     }
@@ -478,7 +480,7 @@ function drawBand(
     columns,
     theirs,
     quotas: shownQuotas(),
-    guard: guardViewOf($, now),
+    guard: guardViewOf($, now, e.surface),
     onRemove: id => {
       void dissolvePlan($, id)
     },
@@ -655,13 +657,16 @@ function settleAnimations(now: number): void {
 }
 
 /** What the band's guard controls do, bound to this `$`. */
-function guardViewOf($: EngineInterface, now: number): GuardView {
+function guardViewOf($: EngineInterface, now: number, surface: string): GuardView {
   return {
     limits,
     editing,
     draft,
     draftFrom: draftFrom !== null && now - draftMovedAt < NUDGE_MS ? draftFrom : null,
-    isDragReady,
+    isDragReady: dragReady.has(surface),
+    onPick: limit => {
+      void pickDraft($, limit)
+    },
     pause,
     onEdit: kind => {
       editing = editing === kind ? null : kind
@@ -688,6 +693,20 @@ function guardViewOf($: EngineInterface, now: number): GuardView {
       $.ui.toast('Resumed past the limit')
     },
   }
+}
+
+/** Moves the picker's knob to a limit pressed on its track, remembering where it slides from. */
+async function pickDraft($: EngineInterface, limit: number): Promise<void> {
+  const picked = nudgedLimit(limit, 0)
+
+  if (picked === draft) {
+    return
+  }
+
+  draftFrom = draft
+  draft = picked
+  draftMovedAt = await $.clock.now()
+  $.ui.invalidate('ui.render')
 }
 
 /** Moves the picker's knob a step, remembering where it slides from. */

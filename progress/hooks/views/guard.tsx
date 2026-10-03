@@ -19,8 +19,10 @@ export type GuardView = {
   /** The limit the picker shows, and the one its knob slides from after a nudge. */
   draft: number
   draftFrom: number | null
-  /** The dial's drag region runs here: the desktop picker drops its arrows. */
+  /** The dial's drag region runs on this surface; where it does not, the track takes clicks instead. */
   isDragReady: boolean
+  /** Moves the picker's knob to a limit pressed on the track. */
+  onPick: (limit: number) => void
   pause: Pause | null
   /** Opens a window's picker, or closes it when it is the open one. */
   onEdit: (kind: string) => void
@@ -188,6 +190,35 @@ export function limitFlagButton(Button: Button, guard: GuardView, quota: Quota):
 /** The desktop limit dial's width, in CSS pixels. */
 const DIAL_PX = 300
 
+/** A blank label, invisible but not whitespace, so no surface trims it away. */
+const BLANK_LABEL = '\u2800\u2800\u2800'
+
+/**
+ * The dial's click layer, for a surface that does not run its drag region:
+ * one invisible Button per 5% step laid across the track, so a click
+ * anywhere on it slides the knob there.
+ */
+function clickLayerOf(ui: { Box: Box; Button: Button }, guard: GuardView, quota: Quota): RenderElement {
+  const { Box, Button } = ui
+  const steps: number[] = []
+
+  for (let value = LIMIT_STEP; value <= 100 - LIMIT_STEP; value += LIMIT_STEP) {
+    steps.push(value)
+  }
+
+  return (
+    <Box position="absolute" top={0} left={0} right={0} bottom={0} flexDirection="row" alignItems="center">
+      {steps.map(value => (
+        <Box key={`dial-step-box:${quota.kind}:${value}`} width={0} flexGrow={1} flexShrink={1} overflow="hidden" justifyContent="center">
+          <Button key={`dial-step:${quota.kind}:${value}`} plain onPress={() => guard.onPick(Math.min(LIMIT_MAX, value))}>
+            {BLANK_LABEL}
+          </Button>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
 /** The props the dial's drag region gets: the range, the grid, the value, the track's margins. */
 function dragPropsOf(guard: GuardView, inset: number) {
   return { min: LIMIT_MIN, max: LIMIT_MAX, step: LIMIT_STEP, value: guard.draft, inset }
@@ -207,8 +238,9 @@ function dragLayerOf(ui: { Box: Box; Client: ElementConstructor<ClientProps> }, 
 /**
  * A window's limit picker on the desktop, one row: the window, the dial
  * (drag its knob, or press anywhere on its track; the `pause at 25%` bubble
- * rides along), `Set`, `Remove` once a limit is set, and a close mark. The
- * arrows stay beside the dial until its drag region reports that it runs.
+ * rides along), `Set`, `Remove` once a limit is set, and a close mark.
+ * Where the surface does not run the drag region, a click on the track
+ * moves the knob there instead.
  */
 export function desktopLimitPicker(
   ui: { Box: Box; Text: Text; Button: Button; Svg: ElementConstructor<SvgProps>; Client: ElementConstructor<ClientProps> },
@@ -223,11 +255,6 @@ export function desktopLimitPicker(
       <Text bold color={hexOf(AMBER)}>
         {`⚑ ${quota.label}`}
       </Text>
-      {guard.isDragReady ? null : (
-        <Button key={`nudge:${quota.kind}:down`} plain onPress={() => guard.onNudge(-1)}>
-          ◀
-        </Button>
-      )}
       <Box key={`dial:${quota.kind}`} position="relative" flexShrink={0}>
         <Svg
           source={limitDialOf({
@@ -243,12 +270,8 @@ export function desktopLimitPicker(
           height={DIAL_HEIGHT}
         />
         {dragLayerOf(ui, guard, quota, 1)}
+        {guard.isDragReady ? null : clickLayerOf(ui, guard, quota)}
       </Box>
-      {guard.isDragReady ? null : (
-        <Button key={`nudge:${quota.kind}:up`} plain onPress={() => guard.onNudge(1)}>
-          ▶
-        </Button>
-      )}
       <Button key={`limit-set:${quota.kind}`} variant="primary" autoFocus onPress={guard.onConfirm}>
         Set
       </Button>
