@@ -617,7 +617,7 @@ describe('register', () => {
     }
   })
 
-  test('▾ folds the plans into one line over the quota row, ▸ opens them again; the folder remembers', async ($, on) => {
+  test('Collapse folds the plans into a line of rings over the quota row, 3 tasks opens them again; the folder remembers', async ($, on) => {
     const { saved, blits, clock } = world(on, LIMITS)
 
     await $.session.start(SESSION)
@@ -625,25 +625,31 @@ describe('register', () => {
     await report($, clock, { plan: 'Tests', step: 1, total: 4 })
     await clock.advance(SETTLED_MS)
 
-    const ui = await $.ui.mount({ ...band(), surface: 'desktop' })
+    const ui = await $.ui.mount({ ...band(true), surface: 'desktop' })
+    const toggle = await ui.find({ key: 'band-toggle' })
 
-    expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'the toggle starts the quota row').toContain('band-toggle')
+    expect(toggle?.text, 'a labelled toggle').toBe('▴ Collapse')
+    expect(toggle?.props.variant, 'drawn as a real button').toBe('secondary')
+    expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'at the end of the quota row').toContain('band-toggle')
 
     await ui.press({ key: 'band-toggle' })
 
     const summary = JSON.stringify(await ui.find({ key: 'summary' }))
 
     expect(await ui.find({ key: 'row:docs' }), 'the rows give way').toBeUndefined()
-    expect(summary, 'what runs and what is done').toContain('1 running · 1 done')
+    expect(summary, 'the plan under way and its step').toContain('Tests')
+    expect(summary).toContain('2/4 · 1 done')
     expect(summary, 'the overall percent').toContain(' 63%')
-    expect(summary, 'the mini bars assemble').toContain('animateTransform')
-    expect((await ui.find({ key: 'band-toggle' }))?.text).toBe('▸ 2 tasks')
-    expect(await ui.find({ key: 'quota:five_hour' }), 'the quota row stays under it').toBeDefined()
+    expect(summary, 'a check for the finished plan').toContain('url(#rd)')
+    expect(summary, 'a spark circles the plan Claude works on').toContain('class=\\"or\\"')
+    expect(summary, 'the rings fade in').toContain('attributeName=\\"opacity\\"')
+    expect((await ui.find({ key: 'band-toggle' }))?.text, 'on the folded line').toBe('▾ 2 tasks')
+    expect(JSON.stringify(await ui.find({ key: 'quotas' })), 'the quota row stays under it').not.toContain('band-toggle')
     expect(saved.get(`view:${folderKeyOf('/work')}`)).toEqual({ isFolded: true })
 
     await clock.advance(SETTLED_MS)
 
-    expect(JSON.stringify(await ui.find({ key: 'summary' })), 'at rest once assembled').not.toContain('animateTransform')
+    expect(JSON.stringify(await ui.find({ key: 'summary' })), 'at rest afterwards').not.toContain('attributeName=\\"opacity\\"')
 
     await ui.press({ key: 'band-toggle' })
 
@@ -657,9 +663,11 @@ describe('register', () => {
 
     const terminal = await $.ui.mount({ ...band(), surface: 'terminal' })
     const before = blits.length
+    const line = JSON.stringify(await terminal.find({ key: 'summary' }))
 
     expect(await terminal.find({ key: 'meters' }), 'folded on the terminal too').toBeUndefined()
-    expect((await rasterText(await terminal.find({ key: 'folded' })))[0], 'one mini meter per plan').toMatch(/^▐[⠀-⣿]+ [⠀-⣿⠤]+ *▌ +63%$/)
+    expect(line, 'a check, then a ring a quarter round').toMatch(/✓.*─.*◔/)
+    expect(line).toContain('2/4 · 1 done')
 
     await clock.advance(400)
 

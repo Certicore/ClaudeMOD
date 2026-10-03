@@ -11,7 +11,6 @@ import type {
 } from 'claude-code'
 
 import {
-  foldedCells,
   glyphCell,
   meterRow,
   meterWidthOf,
@@ -35,7 +34,7 @@ import {
   terminalLimitPicker,
   type GuardView,
 } from './guard'
-import { burstLayerOf, chipCentreOf, chipGeometryOf, quotaBarOf, summaryBarOf, svgBarOf } from './svg-bar'
+import { burstLayerOf, chipCentreOf, chipGeometryOf, quotaBarOf, ringsOf, RINGS_PX, svgBarOf } from './svg-bar'
 
 type Box = ElementConstructor<BoxProps>
 type Text = ElementConstructor<TextProps>
@@ -155,7 +154,7 @@ export function terminalBandView(ui: TerminalKit, model: BandModel, layout: Term
   const { frames, context } = model
   const summary = summaryOf(frames)
   const inner = Math.max(20, model.columns - PADDING * 2)
-  const rule = inner - (1 + 1 + TITLE.length + 1 + [...summary].length + 1) - COLLAPSE_MARK
+  const rule = inner - (1 + 1 + TITLE.length + 1 + [...summary].length + 1 + [...foldLabelOf(model)].length + 1) - COLLAPSE_MARK
 
   const pause = model.guard.pause
 
@@ -164,26 +163,16 @@ export function terminalBandView(ui: TerminalKit, model: BandModel, layout: Term
       {pause === null ? null : terminalAlertCard(ui, model.guard, pause, context.now, alertWaveWidthOf(model.columns))}
       {frames.length > 0 ? (
         <Box flexDirection="row" gap={1}>
-          {foldButton(Button, model)}
           <Text bold color={hexOf(LAVENDER)}>
             ◆
           </Text>
           <Text bold>{TITLE}</Text>
           {rule >= 3 ? <Raster key="rule" columns={rule} rows={1} cells={encodeRows([ruleCells(rule)])} /> : null}
           <Text dimColor>{summary}</Text>
+          {foldButton(Button, model, false)}
         </Box>
       ) : null}
-      {frames.length > 0 && model.fold.isFolded ? (
-        <Box key="summary" flexDirection="row" gap={1}>
-          <Text color={hexOf(LAVENDER)}>◆</Text>
-          <Box width={layout.name} flexShrink={0}>
-            <Text bold wrap="truncate-end">
-              {tasksWordOf(frames)}
-            </Text>
-          </Box>
-          <Raster key="folded" columns={layout.meter} rows={1} cells={encodeRows([foldedCells(frames, layout.bar, layout.meter)])} />
-        </Box>
-      ) : null}
+      {frames.length > 0 && model.fold.isFolded ? terminalRingsRow(ui, model) : null}
       {frames.length > 0 && !model.fold.isFolded ? (
       <Box flexDirection="row" gap={1}>
         <Raster key={GLYPHS_KEY} columns={1} rows={frames.length} cells={glyphsCellsOf(frames, context)} />
@@ -272,7 +261,6 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
 
   return (
     <Box key="quotas" flexDirection="row" gap={1} alignItems="center" marginTop={model.frames.length > 0 ? 1 : 0}>
-      {model.frames.length > 0 ? foldButton(ui.Button, model) : null}
       <Text color={hexOf(MUTED)}>◷</Text>
       {model.quotas.map((quota, index) => {
         const color = quotaColorOf(quota.remaining)
@@ -310,6 +298,11 @@ function desktopQuotaRow(ui: DesktopKit, model: BandModel): RenderElement {
           </Box>
         )
       })}
+      {model.frames.length > 0 && !model.fold.isFolded ? (
+        <Box key="band-toggle-box" marginLeft={3} flexShrink={0}>
+          {foldButton(ui.Button, model, true)}
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -335,7 +328,7 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
   return (
     <Box flexDirection="column" alignItems="center" paddingX={PADDING}>
       {pause === null ? null : desktopAlertCard(ui, model.guard, pause, context.now, clamp(barPx, 160, 520))}
-      {frames.length > 0 && model.fold.isFolded ? desktopSummaryRow(ui, model, name, barPx) : null}
+      {frames.length > 0 && model.fold.isFolded ? desktopRingsRow(ui, model) : null}
       {(model.fold.isFolded ? [] : frames).map((frame, index) => {
         const { plan } = frame
         const done = isDone(plan)
@@ -396,9 +389,9 @@ export function desktopBandView(ui: DesktopKit, model: BandModel): RenderElement
         ) : (
           desktopLimitPicker(ui, model.guard, editedOf(model) as Quota, frames.length > 0 ? 1 : 0)
         )
-      ) : frames.length > 0 ? (
+      ) : frames.length > 0 && !model.fold.isFolded ? (
         <Box key="quotas" flexDirection="row" marginTop={1}>
-          {foldButton(ui.Button, model)}
+          {foldButton(ui.Button, model, true)}
         </Box>
       ) : null}
       {model.theirs}
@@ -497,57 +490,125 @@ function burstOverlayOf(ui: DesktopKit, id: string, barPx: number, label: string
   )
 }
 
-/** `3 tasks`, `1 task`: what the folded line is named. */
+/** `3 tasks`, `1 task`. */
 function tasksWordOf(frames: readonly PlanFrame[]): string {
   return frames.length === 1 ? '1 task' : `${frames.length} tasks`
 }
 
-/** The fold toggle: `▾` folds the plans into one line, `▸` opens them again; the count rides along while folded. */
-function foldButton(Button: Button, model: BandModel): RenderElement {
-  const { isFolded } = model.fold
+/** What the fold toggle says: `▴ Collapse` over the open list, `▾ 3 tasks` on the folded line. */
+function foldLabelOf(model: BandModel): string {
+  return model.fold.isFolded ? `▾ ${tasksWordOf(model.frames)}` : '▴ Collapse'
+}
 
-  return (
-    <Button key="band-toggle" plain dimColor hover={{ scope: 'band-toggle', color: hexOf(LAVENDER) }} onPress={model.fold.onToggle}>
-      {isFolded ? `▸ ${tasksWordOf(model.frames)}` : '▾'}
+/**
+ * The fold toggle, a labelled control rather than a bare mark: a native
+ * secondary button on the desktop (`▴ Collapse`, `▾ 3 tasks`), lit text on
+ * the terminal.
+ */
+function foldButton(Button: Button, model: BandModel, isNative: boolean): RenderElement {
+  return isNative ? (
+    <Button key="band-toggle" variant="secondary" onPress={model.fold.onToggle}>
+      {foldLabelOf(model)}
+    </Button>
+  ) : (
+    <Button key="band-toggle" plain hover={{ scope: 'band-toggle', color: hexOf(LAVENDER) }} onPress={model.fold.onToggle}>
+      {foldLabelOf(model)}
     </Button>
   )
 }
 
+/** The folded line's words: the plan under way (or `All done`), its step and how many are done, and the overall percent. */
+function foldedFactsOf(frames: readonly PlanFrame[]): { title: string; detail: string; percent: number; isAllDone: boolean } {
+  const done = frames.filter(frame => isDone(frame.plan)).length
+  const running = frames.filter(frame => !isDone(frame.plan))
+  const active = running.find(frame => frame.isActive) ?? running.at(-1)
+  const overall = frames.reduce((sum, frame) => sum + (isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total), 0) / Math.max(1, frames.length)
+
+  if (active === undefined) {
+    return { title: 'All done', detail: tasksWordOf(frames), percent: 100, isAllDone: true }
+  }
+
+  const others = running.length > 1 ? ` · ${running.length - 1} more` : ''
+
+  return {
+    title: active.plan.name,
+    detail: `${chipOf(active.plan).count}${done > 0 ? ` · ${done} done` : ''}${others}`,
+    percent: shownPercent(overall),
+    isAllDone: false,
+  }
+}
+
 /**
- * The folded list on the desktop, one row in the bars' columns: what runs
- * and what is done, the capsule of mini bars (assembling as the list
- * folds), and the overall percent.
+ * The folded list on the desktop, one centred line: a ring per plan (an
+ * emerald check when finished, a lavender arc as far round as its share
+ * while running, a spark circling the one Claude works on), the plan under
+ * way and its step, the overall percent, and `▾ 3 tasks` to open the list.
  */
-function desktopSummaryRow(ui: DesktopKit, model: BandModel, name: number, barPx: number): RenderElement {
+function desktopRingsRow(ui: DesktopKit, model: BandModel): RenderElement {
   const { Box, Text, Svg } = ui
   const { frames, context } = model
-  const done = frames.filter(frame => isDone(frame.plan)).length
-  const running = frames.length - done
-  const overall = frames.reduce((sum, frame) => sum + (isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total), 0) / frames.length
-  const words = running === 0 ? `${done} done` : done === 0 ? `${running} running` : `${running} running · ${done} done`
-  const segments = frames.map(frame => ({
-    id: frame.plan.id,
-    share: isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total,
-    isDone: isDone(frame.plan),
-    isLive: context.isWorking && frame.isActive,
-  }))
+  const facts = foldedFactsOf(frames)
+  const rings = ringsOf(
+    frames.map(frame => ({
+      id: frame.plan.id,
+      share: isDone(frame.plan) ? 1 : frame.plan.step / frame.plan.total,
+      isDone: isDone(frame.plan),
+      isLive: context.isWorking && frame.isActive,
+    })),
+    model.fold.isAnimating,
+  )
 
   return (
     <Box key="summary" flexDirection="row" gap={1} alignItems="center">
-      <Text color={hexOf(running === 0 ? EMERALD : LAVENDER)}>◆</Text>
-      <Box width={name} flexShrink={0}>
-        <Text wrap="truncate-end">{words}</Text>
+      <Svg source={rings.source} alt={`${facts.title}, ${facts.detail}`} width={rings.width} height={RINGS_PX} />
+      <Box flexShrink={1}>
+        <Text bold color={facts.isAllDone ? hexOf(EMERALD) : undefined} wrap="truncate-end">
+          {facts.title}
+        </Text>
       </Box>
-      <Svg
-        source={summaryBarOf(segments, barPx, DESKTOP_BAR_PX, DESKTOP_BAR_GAP_PX, model.fold.isAnimating)}
-        alt={`${words}, ${shownPercent(overall)}% overall`}
-        width={barPx}
-        height={DESKTOP_BAR_PX + DESKTOP_BAR_GAP_PX * 2}
-      />
+      <Text color={hexOf(MUTED)} wrap="truncate-end">
+        {facts.detail}
+      </Text>
       <Box width={5} flexShrink={0}>
-        <Text color={hexOf(running === 0 ? EMERALD : MUTED)}>{`${shownPercent(overall)}%`.padStart(4)}</Text>
+        <Text color={hexOf(facts.isAllDone ? EMERALD : MUTED)}>{`${facts.percent}%`.padStart(4)}</Text>
       </Box>
-      <Text> </Text>
+      <Box key="band-toggle-box" marginLeft={1} flexShrink={0}>
+        {foldButton(ui.Button, model, true)}
+      </Box>
+    </Box>
+  )
+}
+
+/** A running plan's ring on the terminal, filled as far as its share. */
+function ringGlyphOf(share: number): string {
+  return ['○', '◔', '◑', '◕', '●'][Math.min(4, Math.round(share * 4))] ?? '○'
+}
+
+/** The folded list on the terminal: `✓─✓─◑`, the plan under way and its step, the overall percent. */
+function terminalRingsRow(ui: TerminalKit, model: BandModel): RenderElement {
+  const { Box, Text } = ui
+  const { frames } = model
+  const facts = foldedFactsOf(frames)
+
+  return (
+    <Box key="summary" flexDirection="row" gap={1}>
+      <Box flexDirection="row" flexShrink={0}>
+        {frames.map((frame, index) => (
+          <Box key={`ring:${frame.plan.id}`} flexDirection="row">
+            {index > 0 ? <Text color={hexOf(isDone(frames[index - 1]?.plan ?? frame.plan) ? EMERALD : MUTED)} dimColor>─</Text> : null}
+            <Text bold color={hexOf(isDone(frame.plan) ? EMERALD : LAVENDER)}>
+              {isDone(frame.plan) ? '✓' : ringGlyphOf(frame.plan.step / frame.plan.total)}
+            </Text>
+          </Box>
+        ))}
+      </Box>
+      <Text bold color={facts.isAllDone ? hexOf(EMERALD) : undefined} wrap="truncate-end">
+        {facts.title}
+      </Text>
+      <Text dimColor wrap="truncate-end">
+        {facts.detail}
+      </Text>
+      <Text color={hexOf(facts.isAllDone ? EMERALD : MUTED)}>{`${facts.percent}%`}</Text>
     </Box>
   )
 }

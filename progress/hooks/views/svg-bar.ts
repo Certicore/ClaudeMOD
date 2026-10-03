@@ -552,106 +552,102 @@ export function burstLayerOf(burst: Burst): string {
   )
 }
 
-/** One plan as the folded list's capsule draws it. */
-export type SummarySegment = {
+/** One plan as the folded list's rings draw it. */
+export type RingSegment = {
   id: string
   /** Its share, 0 to 1. */
   share: number
   isDone: boolean
-  /** Claude works on it now: its LEDs twinkle faster and a light runs over it. */
+  /** Claude works on it now: a spark circles its ring. */
   isLive: boolean
 }
 
+/** The rings' height, a ring's diameter and the pitch between two, in CSS pixels. */
+export const RINGS_PX = 24
+const RING_D = 20
+const RING_PITCH = 32
+/** The most rings drawn; older finished plans beyond them fold into a `+n`. */
+const RINGS_MAX = 12
+
 /**
- * The folded list: one capsule holding a mini LED bar per plan, side by
- * side, each filled to its share (emerald done, lavender running) and
- * glowing at its head. Just folded, the segments assemble one by one, each
- * sliding in from the right and settling with a flash, then a sweep of
- * light runs across the whole capsule.
+ * The folded list: one ring per plan, joined by a thread, as a stepper
+ * reads. A finished plan is an emerald disc with its check; a running one a
+ * lavender arc around a grey track, as far round as its share, its core
+ * breathing, and a spark circling it while Claude works on it. More plans
+ * than fit fold their oldest finished ones into `+n`. Just folded, the rings
+ * fade in one after the other.
  */
-export function summaryBarOf(segments: readonly SummarySegment[], width: number, height: number, padY: number, isAssembling: boolean): string {
-  const w = width
-  const h = height
-  const gap = 4
-  const inset = 3
-  const n = Math.max(1, segments.length)
-  const segW = Math.max(6, (w - inset * 2 - gap * (n - 1)) / n)
-  const segH = h - inset * 2
-  let body = ''
-  let defs = ''
+export function ringsOf(segments: readonly RingSegment[], isEntering: boolean): { source: string; width: number } {
+  let shown = [...segments]
+  let hidden = 0
 
-  segments.forEach((segment, index) => {
-    const x0 = inset + index * (segW + gap)
-    const key = `s${index}`
-    const tone = segment.isDone ? FINISHED : RUNNING
-    const fill = Math.max(segment.share > 0 ? 4 : 0, segment.share * segW)
-    const seed = seedOf(segment.id)
-    const rows = Math.max(1, Math.floor((segH - 2) / PITCH))
-    const top = Math.round((segH - rows * PITCH + (PITCH - LED)) / 2)
-    let leds = ''
+  while (shown.length > RINGS_MAX) {
+    const index = shown.findIndex(segment => segment.isDone)
 
-    for (let x = 2, column = 0; x + LED <= fill - 1; x += PITCH, column += 1) {
-      const t = Math.min(1, x / Math.max(1, fill))
+    shown.splice(index === -1 ? 0 : index, 1)
+    hidden += 1
+  }
 
-      for (let row = 0; row < rows; row += 1) {
-        if (noise(seed, column * 31 + row, 1) > 0.42 + 0.55 * t) {
-          continue
-        }
+  const lead = hidden > 0 ? 26 : 0
+  const width = lead + 2 + RING_D + Math.max(0, shown.length - 1) * RING_PITCH + 2
+  const cy = RINGS_PX / 2
+  const r = RING_D / 2 - 2
+  const circumference = 2 * Math.PI * r
+  const emerald = hexOf(EMERALD)
+  const lavender = hexOf(LAVENDER)
+  let body = hidden > 0 ? `<text x="${lead / 2}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="11" font-weight="600" fill="#9a9aa3">+${hidden}</text>` : ''
 
-        const phase = (segment.isLive ? ['', 'a', 'b'] : ['', 'd', 'e'])[Math.floor(noise(seed, column * 31 + row, 3) * 3)] ?? ''
-        const shade = hexOf(mix(tone.dim, tone.bright, 0.2 + 0.8 * t * noise(seed, column * 31 + row, 2) ** 0.6))
+  shown.forEach((segment, index) => {
+    const cx = lead + 2 + RING_D / 2 + index * RING_PITCH
+    const enter = isEntering
+      ? ` opacity="0"><animate attributeName="opacity" from="0" to="1" begin="${(index * 0.05).toFixed(2)}s" dur="0.3s" fill="freeze"/>`
+      : '>'
 
-        leds += `<rect x="${x}" y="${top + row * PITCH}" width="${LED}" height="${LED}" fill="${shade}"${phase === '' ? '' : ` class="${phase}"`}/>`
-      }
+    if (index > 0) {
+      const done = shown[index - 1]?.isDone === true
+
+      body += `<line x1="${cx - RING_PITCH + RING_D / 2 + 3}" x2="${cx - RING_D / 2 - 3}" y1="${cy}" y2="${cy}" stroke="${done ? emerald : '#8e8e96'}" stroke-opacity="${done ? 0.55 : 0.3}" stroke-width="2" stroke-linecap="round"/>`
     }
 
-    const accent = hexOf(segment.isDone ? EMERALD : tone.chip)
-    const begin = (0.05 + index * 0.08).toFixed(2)
+    if (segment.isDone) {
+      body +=
+        `<g${enter}` +
+        `<circle cx="${cx}" cy="${cy}" r="${r + 1.5}" fill="url(#rd)"/>` +
+        `<ellipse cx="${cx}" cy="${cy - r * 0.45}" rx="${r * 0.6}" ry="${r * 0.3}" fill="#fff" fill-opacity="0.22"/>` +
+        `<path d="M${cx - 4.2} ${cy + 0.2}l2.8 2.8 5.4-5.6" fill="none" stroke="#0b3b2a" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>` +
+        `</g>`
 
-    defs +=
-      `<clipPath id="c${key}"><rect x="0" y="0" width="${segW.toFixed(1)}" height="${segH}" rx="${segH / 2}"/></clipPath>` +
-      `<linearGradient id="w${key}" x1="0" x2="1"><stop offset="0" stop-color="${accent}" stop-opacity="0"/><stop offset="1" stop-color="${accent}" stop-opacity="0.38"/></linearGradient>`
+      return
+    }
+
+    const arc = Math.max(0, Math.min(1, segment.share)) * circumference
+
     body +=
-      `<g transform="translate(${x0.toFixed(1)} ${inset})"${isAssembling ? ' opacity="0"' : ''}>` +
-      (isAssembling
-        ? `<animateTransform attributeName="transform" type="translate" from="${(x0 + 26).toFixed(1)} ${inset}" to="${x0.toFixed(1)} ${inset}" begin="${begin}s" dur="0.5s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.16 1 0.3 1"/>` +
-          `<animate attributeName="opacity" from="0" to="1" begin="${begin}s" dur="0.3s" fill="freeze"/>`
+      `<g${enter}` +
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#8e8e96" stroke-opacity="0.28" stroke-width="2.6"/>` +
+      (arc > 0.5
+        ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${lavender}" stroke-opacity="0.35" stroke-width="5" stroke-dasharray="${arc.toFixed(1)} ${circumference.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})" filter="url(#rg)"/>` +
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="url(#ra)" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="${arc.toFixed(1)} ${circumference.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`
         : '') +
-      `<g clip-path="url(#c${key})">` +
-      `<rect x="0" y="0" width="${segW.toFixed(1)}" height="${segH}" fill="#8e8e96" fill-opacity="0.16"/>` +
-      `<rect x="0" y="0" width="${fill.toFixed(1)}" height="${segH}" fill="url(#w${key})"/>` +
-      leds +
-      (fill > 3 && !segment.isDone ? `<rect x="${(fill - 2).toFixed(1)}" y="0" width="2" height="${segH}" fill="#fff" fill-opacity="0.75"/>` : '') +
-      (segment.isLive && !segment.isDone
-        ? `<rect x="-30" y="0" width="30" height="${segH}" fill="url(#sw)"><animate attributeName="x" from="-30" to="${segW.toFixed(1)}" dur="1.8s" repeatCount="indefinite"/></rect>`
+      `<circle class="br" cx="${cx}" cy="${cy}" r="3" fill="${lavender}"/>` +
+      (segment.isLive
+        ? `<g class="or" style="transform-origin:${cx}px ${cy}px"><circle cx="${cx}" cy="${cy - r}" r="3.2" fill="${lavender}" fill-opacity="0.45" filter="url(#rg)"/><circle cx="${cx}" cy="${cy - r}" r="1.6" fill="#fff"/></g>`
         : '') +
-      (isAssembling
-        ? `<rect x="0" y="0" width="${segW.toFixed(1)}" height="${segH}" fill="#fff" opacity="0"><animate attributeName="opacity" values="0;0.55;0" keyTimes="0;0.25;1" begin="${(Number(begin) + 0.28).toFixed(2)}s" dur="0.45s" fill="freeze"/></rect>`
-        : '') +
-      `</g>` +
       `</g>`
   })
 
-  const sweepBegin = (0.05 + n * 0.08 + 0.25).toFixed(2)
-
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h + padY * 2}" viewBox="0 ${-padY} ${w} ${h + padY * 2}">` +
-    `<style>@keyframes tw{0%,100%{opacity:.15}50%{opacity:1}}@keyframes tz{0%,100%{opacity:.35}50%{opacity:1}}` +
-    `.a{animation:tw 1.4s ease-in-out infinite}.b{animation:tw 2.1s ease-in-out .7s infinite}.d{animation:tz 3.1s ease-in-out infinite}.e{animation:tz 4.3s ease-in-out 1.4s infinite}</style>` +
-    `<defs>` +
-    defs +
-    `<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
-    `<linearGradient id="sv" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.6" stop-color="#fff" stop-opacity="0.5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
-    `<clipPath id="sk"><rect x="0" y="0" width="${w}" height="${h}" rx="${h / 2}"/></clipPath>` +
-    `</defs>` +
-    `<rect x="0" y="0" width="${w}" height="${h}" rx="${h / 2}" fill="#8e8e96" fill-opacity="0.1"/>` +
-    body +
-    (isAssembling
-      ? `<g clip-path="url(#sk)"><rect x="-70" y="0" width="70" height="${h}" fill="url(#sv)" opacity="0">` +
-        `<animate attributeName="x" from="-70" to="${w}" begin="${sweepBegin}s" dur="0.75s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.65 0 0.35 1"/>` +
-        `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" begin="${sweepBegin}s" dur="0.75s" fill="freeze"/>` +
-        `</rect></g>`
-      : '') +
-    `</svg>`
-  )
+  return {
+    width,
+    source:
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${RINGS_PX}" viewBox="0 0 ${width} ${RINGS_PX}">` +
+      `<style>@keyframes br{0%,100%{opacity:.45}50%{opacity:1}}.br{animation:br 2.4s ease-in-out infinite}` +
+      `@keyframes or{to{transform:rotate(360deg)}}.or{animation:or 2.4s linear infinite}</style>` +
+      `<defs>` +
+      `<linearGradient id="rd" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${hexOf(mix(EMERALD, WHITE, 0.25))}"/><stop offset="1" stop-color="#149a6c"/></linearGradient>` +
+      `<linearGradient id="ra" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#e6e1ff"/><stop offset="1" stop-color="${lavender}"/></linearGradient>` +
+      `<filter id="rg" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.6"/></filter>` +
+      `</defs>` +
+      body +
+      `</svg>`,
+  }
 }
