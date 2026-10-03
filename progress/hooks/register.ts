@@ -185,7 +185,7 @@ let limits: Limits = {}
 /** The window whose limit picker is open. */
 let editing: string | null = null
 /** The limit the picker shows, the one its knob last slid from, and when. */
-let draft = LIMIT_START
+let draft: number | null = null
 let draftFrom: number | null = null
 let draftMovedAt = 0
 /** The surfaces whose dial drag region has said it runs; elsewhere the dial takes clicks instead. */
@@ -667,12 +667,12 @@ function guardViewOf($: EngineInterface, now: number, surface: string): GuardVie
     draftFrom: draftFrom !== null && now - draftMovedAt < NUDGE_MS ? draftFrom : null,
     isDragReady: dragReady.has(surface),
     onPick: limit => {
-      void pickDraft($, limit)
+      void pickLimit($, limit)
     },
     pause,
     onEdit: kind => {
       editing = editing === kind ? null : kind
-      draft = limits[kind] ?? LIMIT_START
+      draft = limits[kind] ?? null
       draftFrom = null
       $.ui.invalidate('ui.render')
     },
@@ -681,7 +681,7 @@ function guardViewOf($: EngineInterface, now: number, surface: string): GuardVie
     },
     onConfirm: () => {
       if (editing !== null) {
-        void setLimit($, editing, draft)
+        void setLimit($, editing, draft ?? LIMIT_START)
       }
     },
     onSetLimit: (kind, limit) => {
@@ -697,23 +697,28 @@ function guardViewOf($: EngineInterface, now: number, surface: string): GuardVie
   }
 }
 
-/** Moves the picker's knob to a limit pressed on its track, remembering where it slides from. */
-async function pickDraft($: EngineInterface, limit: number): Promise<void> {
+/**
+ * A click on the dial's track: the limit is set there at once (the picker
+ * stays open, so another click moves it) and the bar slides over from where
+ * it stood.
+ */
+async function pickLimit($: EngineInterface, limit: number): Promise<void> {
+  const kind = editing
   const picked = nudgedLimit(limit, 0)
 
-  if (picked === draft) {
+  if (kind === null || picked === draft) {
     return
   }
 
   draftFrom = draft
   draft = picked
   draftMovedAt = await $.clock.now()
-  $.ui.invalidate('ui.render')
+  await setLimit($, kind, picked, true)
 }
 
 /** Moves the picker's knob a step, remembering where it slides from. */
 async function nudgeDraft($: EngineInterface, delta: number): Promise<void> {
-  const moved = nudgedLimit(draft, delta)
+  const moved = nudgedLimit(draft ?? LIMIT_START, delta)
 
   if (moved === draft) {
     return
@@ -752,8 +757,12 @@ async function saveGuard($: EngineInterface): Promise<void> {
   }
 }
 
-/** Sets (or, with null, lifts) a window's limit, closes the editor and checks the windows against it. */
-async function setLimit($: EngineInterface, kind: string, limit: number | null): Promise<void> {
+/**
+ * Sets (or, with null, lifts) a window's limit and checks the windows
+ * against it; closes the picker unless `isStaying` (a click on the dial
+ * keeps it open, so the next click moves the bar).
+ */
+async function setLimit($: EngineInterface, kind: string, limit: number | null, isStaying = false): Promise<void> {
   const next: Limits = { ...limits }
 
   if (limit === null) {
@@ -763,10 +772,21 @@ async function setLimit($: EngineInterface, kind: string, limit: number | null):
   }
 
   limits = next
-  editing = null
+
+  if (!isStaying) {
+    editing = null
+  }
+
+  if (limit === null) {
+    draft = null
+  }
+
   delete acknowledged[kind]
   $.ui.invalidate('ui.render')
-  $.ui.toast(limit === null ? 'Limit removed' : `Work pauses when ${kind === 'seven_day' ? '7d' : '5h'} has ${limit}% left`)
+
+  if (!isStaying) {
+    $.ui.toast(limit === null ? 'Limit removed' : `Work pauses when ${kind === 'seven_day' ? '7d' : '5h'} has ${limit}% left`)
+  }
 
   try {
     await $.store.set(LIMITS_KEY, limits)

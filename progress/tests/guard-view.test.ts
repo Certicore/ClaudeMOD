@@ -27,13 +27,13 @@ function walk(node: unknown, found: Drawn[] = []): Drawn[] {
   return found
 }
 
-function guard(isDragReady: boolean, picked: number[]): GuardView {
+function guard(draft: number | null, picked: number[]): GuardView {
   return {
     limits: {},
     editing: 'five_hour',
-    draft: 25,
+    draft,
     draftFrom: null,
-    isDragReady,
+    isDragReady: false,
     pause: null,
     onEdit: () => {},
     onNudge: () => {},
@@ -50,27 +50,29 @@ function guard(isDragReady: boolean, picked: number[]): GuardView {
 const QUOTA = { kind: 'five_hour', label: '5h', remaining: 62 }
 
 describe('guard-view', () => {
-  test('where the drag region does not run, the track is a row of click targets', () => {
+  test('the desktop dial is a row of click targets, each showing its percent on hover', () => {
     const picked: number[] = []
-    const elements = walk(desktopLimitPicker(table(), guard(false, picked), QUOTA))
+    const elements = walk(desktopLimitPicker(table(), guard(25, picked), QUOTA))
     const steps = elements.filter(each => String(each.props.key ?? '').startsWith('dial-step:five_hour:'))
+    const bubbles = elements.filter(each => each.type === 'Box' && each.props.display === 'none')
 
-    expect(steps.length, 'one per 5% step, 5% to 95%').toBe(19)
+    expect(steps.length, 'one per 5% step, 5% to 90%').toBe(18)
+    expect(bubbles.length, 'a percent bubble per step').toBe(18)
+    expect(bubbles.every(each => (each.props.hover as { display?: string } | undefined)?.display === 'flex'), 'shown under the pointer').toBe(true)
+    expect(elements.some(each => each.type === 'Client'), 'no drag region on the desktop').toBe(false)
     expect(elements.some(each => String(each.props.key ?? '').startsWith('nudge:')), 'no arrows').toBe(false)
 
-    const seventy = steps.find(each => each.props.key === 'dial-step:five_hour:70')
-    const ninetyFive = steps.find(each => each.props.key === 'dial-step:five_hour:95')
+    ;(steps.find(each => each.props.key === 'dial-step:five_hour:70')?.props.onPress as () => void)()
+    ;(steps.find(each => each.props.key === 'dial-step:five_hour:5')?.props.onPress as () => void)()
 
-    ;(seventy?.props.onPress as () => void)()
-    ;(ninetyFive?.props.onPress as () => void)()
-
-    expect(picked, 'a click moves the knob there, kept within 90%').toEqual([70, 90])
+    expect(picked, 'a click sets the limit there').toEqual([70, 5])
   })
 
-  test('where the drag region runs, the track is left to it', () => {
-    const elements = walk(desktopLimitPicker(table(), guard(true, []), QUOTA))
+  test('with no limit yet, the dial asks for a click', () => {
+    const elements = walk(desktopLimitPicker(table(), guard(null, []), QUOTA))
+    const svg = elements.find(each => each.type === 'Svg')
 
-    expect(elements.some(each => String(each.props.key ?? '').startsWith('dial-step:'))).toBe(false)
-    expect(elements.some(each => each.type === 'Client'), 'the drag region').toBe(true)
+    expect(String(svg?.props.source)).toContain('click the bar to set a limit')
+    expect(String(svg?.props.source)).not.toContain('pause at')
   })
 })

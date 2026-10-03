@@ -339,45 +339,44 @@ describe('register', () => {
     await ui.unmount()
   })
 
-  test('a quota label opens the dial; dragging its knob sets the limit', async ($, on) => {
+  test('a quota label opens the dial; a click on the track sets the limit, another moves it', async ($, on) => {
     const { saved } = world(on, LIMITS)
 
     await $.session.start(SESSION)
 
     const ui = await $.ui.mount({ ...band(), surface: 'desktop' })
     const picker = async () => JSON.stringify(await ui.find({ key: 'editor:five_hour' }))
-    const drag = { in: 'dial-drag:five_hour', y: 1 } as const
 
     expect((await ui.find({ key: 'flag:five_hour' }))?.text, 'no limit yet').toBe('⚑')
 
     await ui.press({ key: 'limit:five_hour' })
 
-    expect(await ui.find({ key: 'limit-set:five_hour' }), 'the picker is open').toBeDefined()
-    expect(await picker(), 'it starts at 25%').toContain('pause at 25%')
-    expect(await ui.find({ key: 'nudge:five_hour:down' }), 'no arrows once the drag region runs: the knob is dragged').toBeUndefined()
+    expect(await picker(), 'with no limit, the dial invites a click').toContain('click the bar to set a limit')
+    expect(await ui.find({ key: 'dial-step:five_hour:40' }), 'the track is clickable').toBeDefined()
+    expect(await picker(), 'each step shows its percent under the pointer').toContain('40%')
 
-    await ui.resize({ columns: 40, rows: 3, in: 'dial-drag:five_hour' })
-    await ui.pointer({ ...drag, type: 'down', x: 4, button: 'left' })
+    await ui.press({ key: 'dial-step:five_hour:40' })
 
-    expect(await picker(), 'a press jumps the knob, snapped to 5%').toContain('pause at 10%')
+    expect(saved.get('limits'), 'set at the click').toEqual({ five_hour: 40 })
+    expect(await picker(), 'the bar stands at 40%').toContain('pause at 40%')
+    expect(await ui.find({ key: 'dial-step:five_hour:60' }), 'the picker stays open').toBeDefined()
 
-    await ui.pointer({ ...drag, type: 'move', x: 20, button: 'left' })
+    await ui.press({ key: 'dial-step:five_hour:60' })
 
-    expect(await picker(), 'the drag carries it').toContain('pause at 50%')
+    expect(saved.get('limits')).toEqual({ five_hour: 60 })
+    expect(await picker(), 'another click moves the bar').toContain('pause at 60%')
+    expect(await picker(), 'and it slides there').toContain('animateTransform')
 
-    await ui.pointer({ ...drag, type: 'up', x: 20, button: 'left' })
-    await ui.pointer({ ...drag, type: 'move', x: 30 })
+    await ui.press({ key: 'editor-close:five_hour' })
 
-    expect(await picker(), 'a hover after the release moves nothing').toContain('pause at 50%')
-
-    await ui.press({ key: 'limit-set:five_hour' })
-
-    expect(saved.get('limits')).toEqual({ five_hour: 50 })
-    expect(await ui.find({ key: 'limit-set:five_hour' }), 'the picker closes').toBeUndefined()
-    expect((await ui.find({ key: 'flag:five_hour' }))?.text).toBe('⚑ 50%')
+    expect(await ui.find({ key: 'editor:five_hour' }), 'the picker closes').toBeUndefined()
+    expect((await ui.find({ key: 'flag:five_hour' }))?.text).toBe('⚑ 60%')
     expect(JSON.stringify(await ui.find({ key: 'quota:five_hour' })), 'an amber notch marks the limit on the gauge').toContain('#f5a524')
 
     await ui.press({ key: 'flag:five_hour' })
+
+    expect(await picker(), 'it reopens on the limit set').toContain('pause at 60%')
+
     await ui.press({ key: 'limit-off:five_hour' })
 
     expect(saved.get('limits'), 'Remove lifts a limit').toEqual({})

@@ -111,44 +111,46 @@ export function alertWaveOf(phase: AlertPhase, width: number, height: number): s
   )
 }
 
-/** What the limit picker draws: the window, what is left of it, and the limit being chosen. */
+/** What the limit picker draws: the window, what is left of it, and the limit chosen. */
 export type LimitDial = {
   kind: string
   /** What is left of the window, 0 to 100, and its color. */
   remaining: number
   color: Rgb
-  /** The limit being chosen, in percent left. */
-  limit: number
-  /** The limit the knob slides from, when it just moved; null at rest. */
+  /** The limit set, in percent left; null while none is. */
+  limit: number | null
+  /** The limit the bar slides from, when it just moved; null at rest. */
   from: number | null
   width: number
 }
 
-/** The dial's height: a bubble above, the track below. */
+/** The dial's height: a bubble lane above, the track below. */
 export const DIAL_HEIGHT = 42
+/** The dial's track, its margins and its place in the drawing, shared with the click layer laid over it. */
+export const DIAL_PAD = 8
+export const DIAL_TRACK_Y = 25
+export const DIAL_TRACK_H = 12
 
 /**
  * The limit picker's dial: a wide LED track of what is left of the window;
- * the zone where the work would pause hatched in glowing amber; a knob at
- * the limit, breathing, with a halo rippling out of it; a bubble riding
- * above it that says `pause at 25%`. A move slides the knob, the bubble and
- * the zone together with an ease.
+ * the zone where the work would pause hatched in glowing amber; at the limit
+ * a bar of light standing through the track, its glow breathing, and a
+ * bubble above it that says `pause at 25%`. A new limit slides the bar, the
+ * bubble and the zone together with an ease. With no limit yet, the bubble
+ * invites a click instead.
  */
 export function limitDialOf(dial: LimitDial): string {
   const w = dial.width
   const h = DIAL_HEIGHT
-  const trackY = 25
-  const trackH = 12
-  const pad = 8
+  const trackY = DIAL_TRACK_Y
+  const trackH = DIAL_TRACK_H
+  const pad = DIAL_PAD
   const xOf = (percent: number) => pad + (Math.max(0, Math.min(100, percent)) / 100) * (w - pad * 2)
-  const knob = xOf(dial.limit)
-  const from = dial.from === null ? knob : xOf(dial.from)
-  const moving = Math.abs(from - knob) > 0.5
-  const spline = 'dur="0.42s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.22 1 0.36 1"'
-  const remainingX = xOf(dial.remaining)
   const amber = hexOf(AMBER)
   const color = hexOf(dial.color)
   const seed = seedOf(`dial:${dial.kind}`)
+  const remainingX = xOf(dial.remaining)
+  const font = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, sans-serif"
   let leds = ''
 
   for (let x = pad + 1, column = 0; x + 2 <= remainingX - 1; x += 3, column += 1) {
@@ -161,47 +163,57 @@ export function limitDialOf(dial: LimitDial): string {
     }
   }
 
-  const bubbleW = 92
-  const bubbleShift = (x: number) => Math.max(bubbleW / 2 + 1, Math.min(w - bubbleW / 2 - 1, x)) - x
-  const slide = (attribute: 'x' | 'width', a: number, b: number) =>
-    moving ? `<animate attributeName="${attribute}" from="${a.toFixed(1)}" to="${b.toFixed(1)}" ${spline}/>` : ''
-
-  return (
+  const head =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
     `<style>@keyframes tz{0%,100%{opacity:.4}50%{opacity:1}}.d{animation:tz 3s ease-in-out infinite}.e{animation:tz 2.2s ease-in-out .9s infinite}` +
-    `@keyframes kb{0%,100%{opacity:.55}50%{opacity:1}}.kb{animation:kb 1.6s ease-in-out infinite}</style>` +
+    `@keyframes kb{0%,100%{opacity:.45}50%{opacity:1}}.kb{animation:kb 1.6s ease-in-out infinite}</style>` +
     `<defs>` +
     `<pattern id="hz" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="2.2" height="6" fill="${amber}" fill-opacity="0.38"/></pattern>` +
     `<linearGradient id="zg" x1="0" x2="1"><stop offset="0" stop-color="${amber}" stop-opacity="0.05"/><stop offset="1" stop-color="${amber}" stop-opacity="0.32"/></linearGradient>` +
-    `<radialGradient id="kg" cx="0.35" cy="0.3"><stop offset="0" stop-color="${hexOf(AMBER_BRIGHT)}"/><stop offset="1" stop-color="${hexOf(AMBER_DEEP)}"/></radialGradient>` +
-    `<filter id="kf" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="3.5"/></filter>` +
+    `<linearGradient id="lb" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${hexOf(AMBER_BRIGHT)}"/><stop offset="1" stop-color="${amber}"/></linearGradient>` +
+    `<filter id="kf" x="-200%" y="-50%" width="500%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>` +
     `<clipPath id="tc"><rect x="${pad}" y="${trackY}" width="${w - pad * 2}" height="${trackH}" rx="${trackH / 2}"/></clipPath>` +
-    `</defs>` +
+    `</defs>`
+  const track = `<rect x="${pad}" y="${trackY}" width="${w - pad * 2}" height="${trackH}" rx="${trackH / 2}" fill="#8e8e96" fill-opacity="0.18"/>`
+
+  if (dial.limit === null) {
+    return (
+      head +
+      track +
+      `<g clip-path="url(#tc)">${leds}</g>` +
+      `<text x="${w / 2}" y="10" text-anchor="middle" dominant-baseline="central" font-family="${font}" font-size="11" font-weight="500" fill="${amber}" class="kb">click the bar to set a limit</text>` +
+      `</svg>`
+    )
+  }
+
+  const bar = xOf(dial.limit)
+  const from = dial.from === null ? bar : xOf(dial.from)
+  const moving = Math.abs(from - bar) > 0.5
+  const spline = 'dur="0.42s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.22 1 0.36 1"'
+  const slide = (a: number, b: number) => (moving ? `<animate attributeName="width" from="${a.toFixed(1)}" to="${b.toFixed(1)}" ${spline}/>` : '')
+  const bubbleW = 92
+  const bubbleShift = Math.max(bubbleW / 2 + 1, Math.min(w - bubbleW / 2 - 1, bar)) - bar
+
+  return (
+    head +
+    track +
     `<g clip-path="url(#tc)">` +
-    `<rect x="0" y="${trackY}" width="${w}" height="${trackH}" fill="#8e8e96" fill-opacity="0.18"/>` +
     leds +
-    `<rect x="0" y="${trackY}" width="${knob.toFixed(1)}" height="${trackH}" fill="url(#zg)">${slide('width', from, knob)}</rect>` +
-    `<rect x="0" y="${trackY}" width="${knob.toFixed(1)}" height="${trackH}" fill="url(#hz)">${slide('width', from, knob)}</rect>` +
+    `<rect x="0" y="${trackY}" width="${bar.toFixed(1)}" height="${trackH}" fill="url(#zg)">${slide(from, bar)}</rect>` +
+    `<rect x="0" y="${trackY}" width="${bar.toFixed(1)}" height="${trackH}" fill="url(#hz)">${slide(from, bar)}</rect>` +
     `</g>` +
-    `<g transform="translate(${knob.toFixed(1)} 0)">` +
-    (moving
-      ? `<animateTransform attributeName="transform" type="translate" from="${from.toFixed(1)} 0" to="${knob.toFixed(1)} 0" ${spline}/>`
-      : '') +
-    `<line x1="0" x2="0" y1="${trackY - 3}" y2="${trackY + trackH + 3}" stroke="${amber}" stroke-width="6" stroke-opacity="0.35" filter="url(#kf)"/>` +
-    `<circle cx="0" cy="${trackY + trackH / 2}" r="8" fill="none" stroke="${amber}" stroke-width="1.5">` +
-    `<animate attributeName="r" values="8;15" dur="1.8s" repeatCount="indefinite"/>` +
-    `<animate attributeName="stroke-opacity" values="0.7;0" dur="1.8s" repeatCount="indefinite"/></circle>` +
-    `<circle class="kb" cx="0" cy="${trackY + trackH / 2}" r="9" fill="${amber}" fill-opacity="0.45" filter="url(#kf)"/>` +
-    `<circle cx="0" cy="${trackY + trackH / 2}" r="7" fill="url(#kg)" stroke="#fff" stroke-width="1.6"/>` +
-    `<g transform="translate(${bubbleShift(knob).toFixed(1)} 0)">` +
+    `<g transform="translate(${bar.toFixed(1)} 0)">` +
+    (moving ? `<animateTransform attributeName="transform" type="translate" from="${from.toFixed(1)} 0" to="${bar.toFixed(1)} 0" ${spline}/>` : '') +
+    `<rect class="kb" x="-4" y="${trackY - 6}" width="8" height="${trackH + 10}" rx="4" fill="${amber}" fill-opacity="0.7" filter="url(#kf)"/>` +
+    `<rect x="-1.75" y="${trackY - 5}" width="3.5" height="${trackH + 9}" rx="1.75" fill="url(#lb)"/>` +
+    `<rect x="-0.6" y="${trackY - 4}" width="1.2" height="${trackH + 7}" rx="0.6" fill="#fff" fill-opacity="0.85"/>` +
+    `<g transform="translate(${bubbleShift.toFixed(1)} 0)">` +
     `<rect x="${-bubbleW / 2}" y="1" width="${bubbleW}" height="17" rx="8.5" fill="${hexOf(AMBER_DEEP)}"/>` +
     `<rect x="${-bubbleW / 2 + 0.5}" y="1.5" width="${bubbleW - 1}" height="16" rx="8" fill="none" stroke="#fff" stroke-opacity="0.25"/>` +
-    `<text x="0" y="10" text-anchor="middle" dominant-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="${hexOf(WHITE)}">` +
-    `pause at ${dial.limit}%</text>` +
+    `<text x="0" y="10" text-anchor="middle" dominant-baseline="central" font-family="${font}" font-size="11" font-weight="600" fill="${hexOf(WHITE)}">pause at ${dial.limit}%</text>` +
     `</g>` +
     `<path d="M-4 18 L4 18 L0 22 Z" fill="${hexOf(AMBER_DEEP)}"/>` +
     `</g>` +
     `</svg>`
   )
 }
-
